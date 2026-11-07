@@ -1,0 +1,2217 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>ブロックフォール 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Luckiest+Guy&display=swap">
+<style>
+/* Dark game shell — 3D canvas is the hero, quiet dark cards hold the HUD. Cyan accent + red for bombs. */
+:root {
+  --bg: #070a14;
+  --bg-glow: #141c3a;
+  --surface: #10172a;
+  --surface-elev: #1a2340;
+  --border: #27314d;
+  --text: #e6ebf5;
+  --text-dim: #7983a0;
+  --accent: #5ee3ff;
+  --accent-glow: rgba(94, 227, 255, 0.25);
+  --danger: #ff5030;
+  --font-ui: 'Chakra Petch', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; margin: 0; }
+body { box-sizing: border-box; }   /* padding inside the 100% height, so the layout never overflows the screen */
+body {
+  background: radial-gradient(ellipse at 50% 0%, var(--bg-glow) 0%, var(--bg) 55%);
+  color: var(--text);
+  font-family: var(--font-ui);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: ""; position: fixed; inset: 0 0 auto;
+  height: env(safe-area-inset-top, 0px); z-index: 10;
+  background: var(--bg);
+}
+
+.app {
+  display: flex; gap: 20px; align-items: stretch;
+  width: 100%; max-width: 880px;
+  height: 100%; max-height: 760px; min-height: 0;
+}
+
+.stage {
+  position: relative; flex: 1 1 auto;
+  background: #0b1020;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden; min-width: 0;
+  box-shadow: 0 0 60px -10px var(--accent-glow), inset 0 0 0 1px rgba(94, 227, 255, 0.05);
+}
+#game-canvas { display: block; width: 100%; height: 100%; }
+
+/* Screen = any full-stage overlay (title / pause / game over) */
+.screen {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 16px; padding: 24px; text-align: center; z-index: 5;
+}
+.screen[hidden] { display: none; }
+/* Any element toggled with the hidden attribute must really disappear (sidebar etc. use display:flex) */
+[hidden] { display: none !important; }
+
+/* Title screen — illustrated background with mode cards pinned to the lower area */
+.title-screen {
+  background:
+    linear-gradient(to top, rgba(7, 10, 20, 0.92) 0%, rgba(7, 10, 20, 0.55) 28%, rgba(7, 10, 20, 0.0) 55%),
+    url('title-bg.jpg') center top / cover no-repeat #070a14;
+  justify-content: flex-end;
+  padding: 24px 20px 32px;
+  gap: 0;
+}
+.title-screen-inner {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 14px; width: 100%;
+}
+.mode-grid {
+  display: grid; grid-template-columns: 1fr;
+  gap: 10px; width: 100%; max-width: 260px;
+}
+/* Arcade-neon mode cards — match the glowing block aesthetic of the hero image */
+.mode-card {
+  display: flex; flex-direction: column; align-items: flex-start;
+  gap: 6px; padding: 16px 20px;
+  background: linear-gradient(180deg, rgba(12, 24, 52, 0.78) 0%, rgba(5, 10, 24, 0.82) 100%);
+  border: 1.5px solid rgba(94, 227, 255, 0.5);
+  border-radius: 8px;
+  color: var(--text); cursor: pointer;
+  font-family: var(--font-ui); text-align: left;
+  transition: transform 0.18s ease, border-color 0.2s ease, box-shadow 0.25s ease, background 0.2s ease;
+  position: relative;
+  box-shadow:
+    0 0 20px rgba(94, 227, 255, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.mode-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(94, 227, 255, 0.95);
+  background: linear-gradient(180deg, rgba(20, 42, 82, 0.88) 0%, rgba(8, 16, 36, 0.88) 100%);
+  box-shadow:
+    0 0 36px rgba(94, 227, 255, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.mode-card .mode-tag {
+  font-family: var(--font-mono); font-size: 10px;
+  color: rgba(140, 230, 255, 0.95);
+  letter-spacing: 0.25em;
+  padding: 2px 7px;
+  background: rgba(94, 227, 255, 0.1);
+  border: 1px solid rgba(94, 227, 255, 0.35);
+  border-radius: 3px;
+}
+.mode-card .mode-label {
+  margin-top: 4px;
+  font-size: 23px; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: #ffffff;
+  text-shadow: 0 0 10px rgba(94, 227, 255, 0.75), 0 0 3px rgba(94, 227, 255, 0.5);
+}
+.mode-card .mode-desc {
+  font-size: 11px;
+  color: rgba(190, 210, 240, 0.75);
+  letter-spacing: 0.03em;
+}
+
+/* Hyper — red/orange neon to echo the explosion sparks */
+.mode-card-hyper {
+  border-color: rgba(255, 80, 48, 0.5);
+  box-shadow:
+    0 0 20px rgba(255, 80, 48, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.mode-card-hyper:hover {
+  border-color: rgba(255, 110, 70, 0.95);
+  background: linear-gradient(180deg, rgba(60, 20, 15, 0.88) 0%, rgba(22, 8, 10, 0.88) 100%);
+  box-shadow:
+    0 0 36px rgba(255, 80, 48, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.mode-card-hyper .mode-tag {
+  color: rgba(255, 160, 115, 0.95);
+  background: rgba(255, 80, 48, 0.12);
+  border-color: rgba(255, 80, 48, 0.4);
+}
+.mode-card-hyper .mode-label {
+  color: #ffe0d0;
+  text-shadow: 0 0 10px rgba(255, 80, 48, 0.85), 0 0 3px rgba(255, 80, 48, 0.65);
+}
+.mode-card-hyper::after {
+  content: ""; position: absolute; top: 14px; right: 14px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--danger);
+  box-shadow: 0 0 12px var(--danger), 0 0 24px rgba(255, 80, 48, 0.6);
+  animation: bomb-blink 1.4s ease-in-out infinite;
+}
+@keyframes bomb-blink {
+  0%, 100% { opacity: 0.55; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+.chosen-mode {
+  margin: 0 0 2px;
+  font-family: var(--font-mono);
+  font-size: 10px; letter-spacing: 0.22em;
+  text-transform: uppercase; color: var(--accent);
+  padding: 4px 12px; border-radius: 999px;
+  background: rgba(10, 15, 30, 0.65);
+  border: 1px solid rgba(94, 227, 255, 0.3);
+}
+.chosen-mode.hyper {
+  color: var(--danger);
+  border-color: rgba(255, 80, 48, 0.4);
+}
+/* Difficulty Hard — amber neon */
+.diff-hard {
+  border-color: rgba(255, 158, 61, 0.5);
+  box-shadow:
+    0 0 20px rgba(255, 158, 61, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.diff-hard:hover {
+  border-color: rgba(255, 180, 90, 0.95);
+  background: linear-gradient(180deg, rgba(55, 32, 10, 0.88) 0%, rgba(22, 14, 6, 0.88) 100%);
+  box-shadow:
+    0 0 36px rgba(255, 158, 61, 0.6),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.diff-hard .mode-tag {
+  color: rgba(255, 200, 130, 0.95);
+  background: rgba(255, 158, 61, 0.12);
+  border-color: rgba(255, 158, 61, 0.4);
+}
+.diff-hard .mode-label {
+  color: #ffe8c6;
+  text-shadow: 0 0 10px rgba(255, 158, 61, 0.85), 0 0 3px rgba(255, 158, 61, 0.65);
+}
+.title-hint {
+  margin: 0; color: var(--text-dim); font-size: 11px;
+  font-family: var(--font-mono); letter-spacing: 0.08em;
+}
+.title-hint kbd {
+  background: var(--surface-elev); border: 1px solid var(--border);
+  border-radius: 3px; padding: 2px 6px;
+  color: var(--text); font-size: 10px; margin: 0 2px;
+}
+
+/* Pause / game over overlay */
+.overlay { background: rgba(7, 10, 20, 0.84); }
+.overlay h2 {
+  margin: 0; font-size: 30px; font-weight: 600;
+  letter-spacing: 0.08em; color: var(--accent);
+  text-transform: uppercase;
+  text-shadow: 0 0 24px var(--accent-glow);
+}
+.overlay > p { margin: 0; color: var(--text-dim); font-size: 14px; }
+.overlay .mode-chip {
+  display: inline-block;
+  font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 3px 10px; border-radius: 999px;
+  border: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.overlay .mode-chip.hyper { color: var(--danger); border-color: rgba(255, 80, 48, 0.4); }
+.overlay-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.overlay button {
+  background: var(--accent); color: #07101a;
+  border: none; padding: 12px 28px; border-radius: 6px;
+  font-family: var(--font-ui); font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase;
+  font-size: 13px; cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.2s ease;
+  box-shadow: 0 0 24px var(--accent-glow);
+}
+.overlay button:hover { transform: translateY(-1px); box-shadow: 0 0 32px var(--accent-glow); }
+.overlay button:active { transform: translateY(0); }
+.overlay button.btn-ghost {
+  background: transparent; color: var(--text-dim);
+  border: 1px solid var(--border);
+  box-shadow: none; padding: 12px 18px;
+}
+.overlay button.btn-ghost:hover { border-color: var(--accent); color: var(--accent); background: transparent; box-shadow: none; }
+
+/* Combo pop-up: chunky cartoon font, every letter a different candy colour, bouncy entrance */
+.combo-pop {
+  position: absolute; left: 50%; top: 28%; z-index: 4;
+  transform: translate(-50%, -50%);
+  pointer-events: none; text-align: center; line-height: 0.9;
+  font-family: 'Luckiest Guy', 'Chakra Petch', cursive;
+  opacity: 0; white-space: nowrap;
+}
+.combo-pop.show { animation: combo-pop 1.25s cubic-bezier(.2,.9,.3,1.2) forwards; }
+.combo-pop .num  { display: block; font-size: clamp(56px, 13vmin, 96px); }
+.combo-pop .word { display: block; font-size: clamp(26px, 6vmin, 44px); letter-spacing: 0.06em; margin-top: 2px; }
+.combo-pop .ch {
+  display: inline-block;
+  -webkit-text-stroke: 0.07em #1b0f3a; paint-order: stroke fill;
+  text-shadow: 0 0.07em 0 #1b0f3a, 0 0 0.35em currentColor;
+}
+.combo-pop.show .ch { animation: combo-bounce 0.5s cubic-bezier(.3,1.8,.5,1) both; }
+@keyframes combo-pop {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.3) rotate(-8deg); }
+  18%  { opacity: 1; transform: translate(-50%, -50%) scale(1.18) rotate(4deg); }
+  30%  { transform: translate(-50%, -50%) scale(1) rotate(-2deg); }
+  75%  { opacity: 1; transform: translate(-50%, -55%) scale(1) rotate(0deg); }
+  100% { opacity: 0; transform: translate(-50%, -80%) scale(0.9); }
+}
+@keyframes combo-bounce {
+  0%   { transform: translateY(0.5em) scale(0.4); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* Board column: score/level bar on top, board, pause button underneath */
+.play-col {
+  display: flex; flex-direction: column; gap: 10px;
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+}
+.play-col .stage { flex: 1 1 auto; min-height: 0; }
+.hud-top { display: flex; gap: 10px; }
+.hud-top .card {
+  flex: 1 1 0; min-width: 0;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  padding: 8px 14px;
+}
+.hud-top .card-label { margin: 0; }
+.hud-bottom { justify-content: center; }
+/* Half the board column's width, centred */
+.btn-row.hud-bottom button { flex: 0 0 50%; padding: 11px 4px; }
+
+.sidebar {
+  display: flex; flex-direction: column; gap: 10px;
+  min-width: 180px; width: 180px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+.mode-indicator {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.mode-indicator .mode-indicator-label {
+  font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.18em; color: var(--text-dim);
+  font-weight: 500;
+}
+.mode-indicator .mode-indicator-value {
+  font-family: var(--font-mono); font-size: 12px;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--accent);
+}
+.mode-indicator.hyper { border-color: rgba(255, 80, 48, 0.35); }
+.mode-indicator.hyper .mode-indicator-value { color: var(--danger); }
+
+.card-label {
+  font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.18em; color: var(--text-dim);
+  margin: 0 0 2px; font-weight: 500;
+}
+.card-value {
+  font-family: var(--font-mono); font-size: 22px;
+  font-weight: 500; margin: 0; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.next-card { padding: 10px 14px 12px; }
+#next-canvas {
+  display: block; width: 100%; height: 90px;
+  background: var(--surface-elev); border-radius: 6px;
+  margin-top: 6px;
+}
+
+.btn-row { display: flex; gap: 6px; }
+.btn-row button {
+  flex: 1; background: transparent; color: var(--text);
+  border: 1px solid var(--border); padding: 9px 4px;
+  border-radius: 6px; font-family: var(--font-ui);
+  font-size: 11px; cursor: pointer;
+  text-transform: uppercase; letter-spacing: 0.1em;
+  font-weight: 500; transition: all 0.15s ease;
+}
+.btn-row button:hover { background: var(--surface-elev); border-color: var(--accent); color: var(--accent); }
+
+.help {
+  font-family: var(--font-mono); font-size: 10.5px;
+  color: var(--text-dim); line-height: 2; margin: 0;
+}
+.help kbd {
+  background: var(--surface-elev);
+  border: 1px solid var(--border); border-radius: 3px;
+  padding: 1px 6px; color: var(--text);
+  font-size: 10px;
+}
+.help .bomb-mark {
+  display: inline-block; width: 8px; height: 8px;
+  border-radius: 50%; background: var(--danger);
+  box-shadow: 0 0 6px var(--danger);
+  vertical-align: middle; margin-right: 4px;
+}
+
+/* Touch gesture hint — only shown on phones */
+.touch-help {
+  display: none; margin: 0;
+  font-family: var(--font-ui); font-size: 10px;
+  line-height: 1.7; color: var(--text-dim);
+}
+
+/* Globally kill text selection + tap highlights on interactive game chrome */
+.mode-card, .btn-row button, .overlay button {
+  -webkit-tap-highlight-color: transparent;
+  user-select: none; -webkit-user-select: none;
+}
+
+/* PC layout: board on the left; Score, Level, Next and Pause stacked in the right column.
+   The board column's wrapper "dissolves" (display: contents) so its pieces can sit in the grid. */
+@media (min-width: 641px) {
+  .app {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 180px;
+    grid-template-rows: auto auto auto 1fr;
+    gap: 10px 20px;
+  }
+  .play-col { display: contents; }
+  .play-col .stage { grid-column: 1; grid-row: 1 / -1; }
+  .app.no-hud .play-col .stage { grid-column: 1 / -1; }   /* title screens: board area uses full width */
+  .hud-top { grid-column: 2; grid-row: 1; flex-direction: column; gap: 10px; }
+  .hud-top .card { display: block; padding: 10px 14px; }
+  .hud-top .card-label { margin: 0 0 2px; }
+  .sidebar { grid-column: 2; grid-row: 2; width: auto; min-width: 0; }
+  .btn-row.hud-bottom { grid-column: 2; grid-row: 3; }
+  .btn-row.hud-bottom button { flex: 1 1 auto; padding: 9px 4px; }
+}
+
+@media (max-width: 640px) {
+  .play-col { gap: 6px; }
+  .hud-top { gap: 6px; }
+  .hud-top .card { padding: 5px 10px; border-radius: 8px; }
+  .hud-top .card-value { font-size: 16px; }
+  .btn-row.hud-bottom { flex-direction: row; }
+  .btn-row.hud-bottom button { flex: 0 0 50%; padding: 10px 4px; }
+  html, body { overscroll-behavior: none; }     /* no pull-to-refresh */
+  body { padding-block: 8px; }
+  body { padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
+  #game-canvas { touch-action: none; }          /* no scroll/zoom on the board */
+  /* Board on the left, compact info column on the right */
+  .app { flex-direction: row; max-height: none; height: 100%; gap: 8px; }
+  .stage { flex: 1 1 auto; touch-action: none; }
+  .sidebar { flex-direction: column; min-width: 84px; width: 84px; gap: 6px; }
+  .sidebar .card { padding: 6px 8px; border-radius: 8px; }
+  .sidebar .card-label { font-size: 9px; letter-spacing: 0.12em; }
+  .sidebar .card-value { font-size: 16px; overflow: hidden; text-overflow: ellipsis; }
+  .sidebar .mode-indicator { flex-direction: column; align-items: flex-start; gap: 2px; padding: 6px 8px; border-radius: 8px; }
+  .sidebar .mode-indicator .mode-indicator-label { font-size: 9px; }
+  .sidebar .mode-indicator .mode-indicator-value { font-size: 10px; letter-spacing: 0.04em; }
+  .sidebar .next-card { padding: 6px 8px 8px; }
+  #next-canvas { height: 60px; margin-top: 4px; }
+  .btn-row { flex-direction: column; }
+  .btn-row button { padding: 12px 4px; font-size: 11px; }
+  .help { display: none; }
+  .touch-help { display: block; margin-top: auto; }
+  .title-main { font-size: 52px; }
+  .mode-grid { grid-template-columns: 1fr; width: 100%; max-width: 260px; }
+  .mode-card { padding: 14px; }
+  .overlay h2 { font-size: 24px; }
+}
+</style>
+
+<div class="app no-hud">
+  <div class="play-col">
+  <!-- Score / Level bar above the board -->
+  <div class="hud-top" id="hud-top" hidden>
+    <div class="card"><p class="card-label">Score</p><p class="card-value" id="score">0</p></div>
+    <div class="card"><p class="card-label">Level</p><p class="card-value" id="level">1</p></div>
+  </div>
+  <div class="stage" id="stage">
+    <div class="combo-pop" id="combo-pop" aria-live="polite"></div>
+    <canvas id="game-canvas"></canvas>
+
+    <div class="screen title-screen" id="title-screen">
+      <div class="title-screen-inner">
+        <div class="mode-grid">
+          <button class="mode-card" data-mode="normal">
+            <span class="mode-tag">01</span>
+            <span class="mode-label">Normal</span>
+            <span class="mode-desc">クラシックルール</span>
+          </button>
+          <button class="mode-card mode-card-hyper" data-mode="hyper">
+            <span class="mode-tag">02</span>
+            <span class="mode-label">Hyper</span>
+            <span class="mode-desc">爆弾ブロック入り</span>
+          </button>
+        </div>
+        <p class="title-hint"><kbd>1</kbd><kbd>2</kbd> キーで選択</p>
+      </div>
+    </div>
+
+    <div class="screen title-screen difficulty-screen" id="difficulty-screen" hidden>
+      <div class="title-screen-inner">
+        <p class="chosen-mode" id="chosen-mode">Mode : Normal</p>
+        <div class="mode-grid">
+          <button class="mode-card diff-card" data-difficulty="easy">
+            <span class="mode-tag">01</span>
+            <span class="mode-label">Easy</span>
+            <span class="mode-desc">5種類のブロック</span>
+          </button>
+          <button class="mode-card diff-card" data-difficulty="normal">
+            <span class="mode-tag">02</span>
+            <span class="mode-label">Normal</span>
+            <span class="mode-desc">テトロミノ全7種類</span>
+          </button>
+          <button class="mode-card diff-card diff-hard" data-difficulty="hard">
+            <span class="mode-tag">03</span>
+            <span class="mode-label">Hard</span>
+            <span class="mode-desc">11種類(+ ペントミノ4種)</span>
+          </button>
+        </div>
+        <p class="title-hint"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 選択 · <kbd>Esc</kbd> 戻る</p>
+      </div>
+    </div>
+
+    <div class="screen overlay" id="overlay" hidden>
+      <span class="mode-chip" id="ov-mode" hidden></span>
+      <h2 id="ov-title"></h2>
+      <p id="ov-text"></p>
+      <div class="overlay-actions">
+        <button id="ov-btn">再開</button>
+        <button id="ov-reset" class="btn-ghost" hidden>リセット</button>
+        <button id="ov-back" class="btn-ghost" hidden>タイトルへ</button>
+      </div>
+    </div>
+  </div>
+  <!-- Pause button under the board -->
+  <div class="btn-row hud-bottom" id="hud-bottom" hidden>
+    <button id="pause-btn">Pause</button>
+  </div>
+  </div>
+
+  <aside class="sidebar" id="sidebar" hidden>
+    <div class="card next-card"><p class="card-label">Next</p><canvas id="next-canvas"></canvas></div>
+  </aside>
+</div>
+
+<script type="importmap">
+{ "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.158.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.158.0/examples/jsm/"
+} }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+(function() {
+  const COLS = 10, ROWS = 20;
+  const BOMB_CHANCE = 0.25;    // Hyper mode: chance a new piece carries a bomb cell
+  const BOMB_RADIUS = 2;       // Chebyshev radius: 5x5 clear around bomb
+  const BIG_BOMB_RADIUS = 5;   // 2x2 bombs merge into a big bomb: clears 5 cells around the 2x2 (12x12)
+  const BIG_BOMB_PIECE_CHANCE = 0.2;  // Hyper: an O (2x2) piece spawns as a whole big bomb 1 in 5 times
+  const LEVEL_SPEED = 1.5;     // level-up pace multiplier (1.5x faster than one level per 10 lines)
+  const COLORS = {
+    I: 0x4ad9d9, O: 0xf5c531, T: 0xa060df,
+    S: 0x5fcf61, Z: 0xe6484d, J: 0x3e86f5, L: 0xf09240,
+    // Pentominoes
+    PT: 0xd040d0, PU: 0xff6090, PW: 0xc08040, PX: 0xeaeaff,
+    PF: 0x9be15d, PI: 0x2fb8a8, PL: 0xff8a5c, PN: 0x8a7cff,
+    PP: 0xf7e07a, PV: 0x5ad1ff, PY: 0xff5fc8, PZ: 0xb4ff40,
+    // Trominoes
+    I3: 0xa0a8c0, V3: 0xffb0d0
+  };
+  const PIECES = {
+    I: [[0,0,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+    O: [[1,1],[1,1]],
+    T: [[0,1,0],[1,1,1],[0,0,0]],
+    S: [[0,1,1],[1,1,0],[0,0,0]],
+    Z: [[1,1,0],[0,1,1],[0,0,0]],
+    J: [[1,0,0],[1,1,1],[0,0,0]],
+    L: [[0,0,1],[1,1,1],[0,0,0]],
+    // Pentominoes (hard mode)
+    PT: [[1,1,1],[0,1,0],[0,1,0]],
+    PU: [[1,0,1],[1,1,1],[0,0,0]],
+    PW: [[1,0,0],[1,1,0],[0,1,1]],
+    PX: [[0,1,0],[1,1,1],[0,1,0]],
+    PF: [[0,1,1],[1,1,0],[0,1,0]],
+    PI: [[0,0,0,0,0],[0,0,0,0,0],[1,1,1,1,1],[0,0,0,0,0],[0,0,0,0,0]],
+    PL: [[0,0,0,1],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+    PN: [[1,1,0,0],[0,1,1,1],[0,0,0,0],[0,0,0,0]],
+    PP: [[1,1,0],[1,1,0],[1,0,0]],
+    PV: [[1,0,0],[1,0,0],[1,1,1]],
+    PY: [[0,1,0,0],[1,1,1,1],[0,0,0,0],[0,0,0,0]],
+    PZ: [[1,1,0],[0,1,0],[0,1,1]],
+    // Trominoes (Hyper hard)
+    I3: [[0,0,0],[1,1,1],[0,0,0]],
+    V3: [[1,0],[1,1]]
+  };
+  const DIFFICULTIES = {
+    easy:   { label: 'Easy',   pieces: ['O', 'I', 'L', 'J', 'T'] },
+    normal: { label: 'Normal', pieces: ['O', 'I', 'L', 'J', 'T', 'S', 'Z'] },
+    hard:   { label: 'Hard',   pieces: ['O', 'I', 'L', 'J', 'T', 'S', 'Z', 'PT', 'PU', 'PW', 'PX'] }
+  };
+  // Hyper mode has its own, steeper ladder: 7 → 11 → 21 piece types
+  const TETROMINOES = ['O', 'I', 'L', 'J', 'T', 'S', 'Z'];
+  const HYPER_DIFFICULTIES = {
+    easy:   { label: 'Easy',   desc: 'テトロミノ全7種類', pieces: TETROMINOES },
+    normal: { label: 'Normal', desc: '11種類(+ ペントミノ4種)', pieces: [...TETROMINOES, 'PT', 'PU', 'PW', 'PX'] },
+    hard:   { label: 'Hard',   desc: '21種類(+ ペントミノ12種・トロミノ2種)',
+              pieces: [...TETROMINOES, 'PF', 'PI', 'PL', 'PN', 'PP', 'PT', 'PU', 'PV', 'PW', 'PX', 'PY', 'PZ', 'I3', 'V3'] }
+  };
+  function diffTable(mode) { return mode === 'hyper' ? HYPER_DIFFICULTIES : DIFFICULTIES; }
+  function diffCfg() { return diffTable(gameMode)[gameDifficulty] || DIFFICULTIES.normal; }
+
+  const canvas = document.getElementById('game-canvas');
+  const nextCanvas = document.getElementById('next-canvas');
+  const titleScreen = document.getElementById('title-screen');
+  const difficultyScreen = document.getElementById('difficulty-screen');
+  const chosenModeEl = document.getElementById('chosen-mode');
+  const overlay = document.getElementById('overlay');
+  const ovTitle = document.getElementById('ov-title');
+  const ovText = document.getElementById('ov-text');
+  const ovMode = document.getElementById('ov-mode');
+  const ovBtn = document.getElementById('ov-btn');
+  const ovBack = document.getElementById('ov-back');
+  const ovReset = document.getElementById('ov-reset');
+  const scoreEl = document.getElementById('score');
+  const linesEl = document.getElementById('lines');
+  const levelEl = document.getElementById('level');
+  const modeIndicator = document.getElementById('mode-indicator');
+  const modeIndicatorValue = document.getElementById('mode-indicator-value');
+  const helpBomb = document.getElementById('help-bomb');
+  const sidebar = document.getElementById('sidebar');
+  const hudTop = document.getElementById('hud-top');
+  const hudBottom = document.getElementById('hud-bottom');
+  // In-game HUD (score/level bar, pause button, Next panel) is hidden on the title screens
+  const appEl = document.querySelector('.app');
+  function setHudVisible(v) {
+    sidebar.hidden = !v; hudTop.hidden = !v; hudBottom.hidden = !v;
+    appEl.classList.toggle('no-hud', !v);
+  }
+
+  // Audio: short SFX. Cloned per play so quick successive sounds can overlap.
+  const landSfx = new Audio('land.mp3');
+  landSfx.preload = 'auto'; landSfx.volume = 0.5;
+  const softDropSfx = new Audio('softdrop.mp3');
+  softDropSfx.preload = 'auto'; softDropSfx.volume = 0.4;
+  const rotateSfx = new Audio('rotate.mp3');
+  rotateSfx.preload = 'auto'; rotateSfx.volume = 0.5;
+  const bombSfx = new Audio('bomb.mp3');
+  bombSfx.preload = 'auto'; bombSfx.volume = 0.6;
+  function playSfx(src, vol) {
+    try {
+      const s = src.cloneNode();
+      s.volume = vol;
+      const p = s.play();
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) {}
+  }
+  function playLandSfx() { playSfx(landSfx, 0.5); }
+  function playSoftDropSfx() { playSfx(softDropSfx, 0.4); }
+  function playRotateSfx() { playSfx(rotateSfx, 0.5); }
+  function playBombSfx() { playSfx(bombSfx, 0.6); }
+
+  // Line-clear SFX: synthesized electric zap (Web Audio) instead of a sample.
+  // A buzzing sawtooth with an LFO + a filter sweep + a high-pass noise burst
+  // gives it that "current running through" character.
+  let audioCtx = null;
+  function getAudioCtx() {
+    if (!audioCtx) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;
+      audioCtx = new AC();
+    }
+    if (audioCtx.state === 'suspended') { try { audioCtx.resume(); } catch (e) {} }
+    return audioCtx;
+  }
+  // --- BGM: seamless loop via Web Audio (HTMLAudio 'loop' leaves a gap) ---
+  const BGM_VOLUME = 0.35;
+  const bgm = { buffer: null, loading: null, source: null, gain: null,
+                startedAt: 0, offset: 0, wanted: false };
+  function loadBgm() {
+    if (bgm.buffer || bgm.loading) return bgm.loading;
+    const ctx = getAudioCtx(); if (!ctx) return null;
+    bgm.loading = fetch('bgm.mp3')
+      .then(r => r.arrayBuffer())
+      .then(ab => new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej)))
+      .then(buf => { bgm.buffer = buf; if (bgm.wanted && !bgm.source) startBgmSource(); })
+      .catch(() => { bgm.loading = null; });
+    return bgm.loading;
+  }
+  function startBgmSource() {
+    const ctx = getAudioCtx(); if (!ctx || !bgm.buffer) return;
+    if (!bgm.gain) { bgm.gain = ctx.createGain(); bgm.gain.gain.value = BGM_VOLUME; bgm.gain.connect(ctx.destination); }
+    const src = ctx.createBufferSource();
+    src.buffer = bgm.buffer; src.loop = true;
+    src.connect(bgm.gain);
+    const off = bgm.offset % bgm.buffer.duration;
+    src.start(0, off);
+    bgm.startedAt = ctx.currentTime - off;
+    bgm.source = src;
+  }
+  function stopBgmSource() {
+    if (!bgm.source) return;
+    try { bgm.source.stop(); } catch (e) {}
+    bgm.source.disconnect(); bgm.source = null;
+  }
+  // restart=true → from the beginning; false → continue where it paused
+  function playBgm(restart) {
+    bgm.wanted = true;
+    if (restart) bgm.offset = 0;
+    if (bgm.source) { if (!restart) return; stopBgmSource(); }
+    if (bgm.buffer) startBgmSource(); else loadBgm();
+  }
+  function pauseBgm() {
+    bgm.wanted = false;
+    if (bgm.source && bgm.buffer && audioCtx) {
+      bgm.offset = (audioCtx.currentTime - bgm.startedAt) % bgm.buffer.duration;
+    }
+    stopBgmSource();
+  }
+  function stopBgm() { pauseBgm(); bgm.offset = 0; }
+
+  function playLineClearSfx() {
+    try {
+      const ctx = getAudioCtx();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      const dur = 0.4;
+
+      // Master envelope — fast attack, sustain, hard cut-off
+      const master = ctx.createGain();
+      master.gain.setValueAtTime(0.0001, now);
+      master.gain.exponentialRampToValueAtTime(0.6, now + 0.01);
+      master.gain.setValueAtTime(0.6, now + dur - 0.04);
+      master.gain.exponentialRampToValueAtTime(0.0001, now + dur);
+      master.connect(ctx.destination);
+
+      // Low-pass filter — keeps everything in the low-mid band ("ジ" sits here, not "キー").
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 1100;
+      filter.Q.value = 1;
+      filter.connect(master);
+
+      // Low sawtooth — rich harmonics give the gritty "ジ" character without going shrill
+      const saw = ctx.createOscillator();
+      saw.type = 'sawtooth';
+      saw.frequency.value = 95;        // low-mid, no vibrato (so no ビビビ)
+      const sawGain = ctx.createGain();
+      sawGain.gain.value = 0.4;
+      saw.connect(sawGain); sawGain.connect(filter);
+      saw.start(now); saw.stop(now + dur);
+
+      // Noise pre-shaped with a fast amplitude pulse baked into the samples:
+      // a ~90Hz impulse train makes it crackle as "ジジジジ" instead of hissing as "シーッ".
+      const noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+      const nd = noiseBuf.getChannelData(0);
+      const pulseFreq = 90;
+      for (let i = 0; i < nd.length; i++) {
+        const phase = (i / ctx.sampleRate) * pulseFreq;
+        const pulse = (phase - Math.floor(phase));          // 0..1 sawtooth
+        const shape = pulse * pulse * (1 - pulse) * 6;      // emphasised crackle shape
+        nd[i] = (Math.random() * 2 - 1) * shape;
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = noiseBuf;
+      const noiseBP = ctx.createBiquadFilter();
+      noiseBP.type = 'bandpass';
+      noiseBP.frequency.value = 650;
+      noiseBP.Q.value = 0.7;
+      const noiseGain = ctx.createGain();
+      noiseGain.gain.value = 1.1;
+      noise.connect(noiseBP); noiseBP.connect(noiseGain); noiseGain.connect(filter);
+      noise.start(now);
+    } catch (e) {}
+  }
+
+  // --- Three.js scene ---
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0b1020);
+  scene.fog = new THREE.Fog(0x0b1020, 30, 60);
+
+  const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+  scene.add(new THREE.AmbientLight(0x8aa0d8, 0.35));
+
+  const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
+  keyLight.position.set(8, 12, 10);
+  keyLight.castShadow = true;
+  keyLight.shadow.mapSize.set(1024, 1024);
+  keyLight.shadow.camera.left = -10; keyLight.shadow.camera.right = 10;
+  keyLight.shadow.camera.top = 14; keyLight.shadow.camera.bottom = -14;
+  keyLight.shadow.camera.near = 1; keyLight.shadow.camera.far = 40;
+  keyLight.shadow.bias = -0.001;
+  scene.add(keyLight);
+
+  const fillLight = new THREE.DirectionalLight(0x5ee3ff, 0.35);
+  fillLight.position.set(-6, -4, 6);
+  scene.add(fillLight);
+
+  const rimLight = new THREE.DirectionalLight(0xff80a0, 0.15);
+  rimLight.position.set(0, -10, -4);
+  scene.add(rimLight);
+
+  // --- Glow (bloom) ---
+  // Bright pixels (the self-lit glass blocks, glints, lightning, explosions) bleed a soft halo.
+  // Threshold keeps the dark backdrop and grid from glowing.
+  const BLOOM = { strength: 0.5, radius: 0.1, threshold: 0.26 };
+  const composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  const bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), BLOOM.strength, BLOOM.radius, BLOOM.threshold);
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
+
+  // Backdrop
+  const bgMat = new THREE.MeshStandardMaterial({ color: 0x12192e, roughness: 0.95, metalness: 0.05 });
+  const bg = new THREE.Mesh(new THREE.PlaneGeometry(COLS, ROWS), bgMat);
+  bg.position.z = -0.55; bg.receiveShadow = true;
+  scene.add(bg);
+
+  // Grid lines
+  // Grid lines packed into a single BufferGeometry → one draw call instead of ~27.
+  // Opaque (same look as the old 0x2a365a @ 60% over the backdrop) so the grid is visible THROUGH the
+  // glass blocks — three.js transmission only refracts opaque objects.
+  const gridMat = new THREE.LineBasicMaterial({ color: 0x202a48 });
+  const gridVerts = [];
+  for (let x = 1; x < COLS; x++) {
+    const xpos = x - COLS / 2;
+    gridVerts.push(xpos, -ROWS/2, -0.53, xpos, ROWS/2, -0.53);
+  }
+  for (let y = 1; y < ROWS; y++) {
+    const ypos = y - ROWS / 2;
+    gridVerts.push(-COLS/2, ypos, -0.53, COLS/2, ypos, -0.53);
+  }
+  const gridGeo = new THREE.BufferGeometry();
+  gridGeo.setAttribute('position', new THREE.Float32BufferAttribute(gridVerts, 3));
+  scene.add(new THREE.LineSegments(gridGeo, gridMat));
+
+  // Cyan field frame
+  const frameMat = new THREE.LineBasicMaterial({ color: 0x5ee3ff, transparent: true, opacity: 0.8 });
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-COLS/2, -ROWS/2, 0.55),
+    new THREE.Vector3( COLS/2, -ROWS/2, 0.55),
+    new THREE.Vector3( COLS/2,  ROWS/2, 0.55),
+    new THREE.Vector3(-COLS/2,  ROWS/2, 0.55),
+    new THREE.Vector3(-COLS/2, -ROWS/2, 0.55)
+  ]), frameMat));
+
+  // Block + bomb geometry (shared across every block, created once)
+  let blockGeo = null;   // rounded glass cube, built below once the helper exists
+  const bombCoreGeo = new THREE.SphereGeometry(0.3, 20, 16);
+  const bombRingGeo = new THREE.TorusGeometry(0.34, 0.035, 8, 24);
+  // Shared explosion assets — each explosion gets its own sphere material so opacity can fade independently,
+  // but the geometry and the (uncolored) debris cube+material are reused.
+  const explosionSphereGeo = new THREE.SphereGeometry(0.6, 20, 16);
+  const debrisGeo = new THREE.BoxGeometry(0.22, 0.22, 0.22);
+  const debrisMat = new THREE.MeshBasicMaterial({ color: 0xff6020 });
+
+  // --- Glass blocks (Blender model + glass material, glTF) ---
+  // glass_block.glb was exported from Blender: a 0.92 cube with rounded (bevelled) edges and a
+  // Principled glass material (transmission 1, IOR 1.5, clearcoat, roughness 0.04).
+  // three.js renders it with real transmission: what's behind a block (grid, bombs, backdrop) is
+  // refracted through it. Each piece colour tints the glass (colour + volume attenuation).
+  const roomEnv = (() => {
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    const tex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+    return tex;
+  })();
+
+  // Glass parameters — start from Blender's values; overwritten by the .glb material when it loads
+  const glassParams = { roughness: 0.04, ior: 1.5, transmission: 1.0, clearcoat: 1.0, clearcoatRoughness: 0.03 };
+
+  // Fallback rounded cube used until the .glb arrives (same shape as the Blender bevel)
+  function makeRoundedBoxGeometry(size, radius, segments) {
+    const segs = segments * 2 + 1;
+    const geo = new THREE.BoxGeometry(1, 1, 1, segs, segs, segs).toNonIndexed();
+    const pos = geo.attributes.position.array, nor = geo.attributes.normal.array;
+    const inner = size / 2 - radius, half = 0.5 / segs;
+    const v = new THREE.Vector3(), n = new THREE.Vector3();
+    for (let i = 0; i < pos.length; i += 3) {
+      v.fromArray(pos, i);
+      n.set(v.x - Math.sign(v.x) * half, v.y - Math.sign(v.y) * half, v.z - Math.sign(v.z) * half).normalize();
+      pos[i]     = inner * Math.sign(v.x) + n.x * radius;
+      pos[i + 1] = inner * Math.sign(v.y) + n.y * radius;
+      pos[i + 2] = inner * Math.sign(v.z) + n.z * radius;
+      nor[i] = n.x; nor[i + 1] = n.y; nor[i + 2] = n.z;
+    }
+    geo.computeBoundingSphere();
+    return geo;
+  }
+  blockGeo = makeRoundedBoxGeometry(0.92, 0.08, 4);
+  const fallbackBlockGeo = blockGeo;
+
+  const GLASS_OPACITY = 0.55;
+  const GLOW_LUMA = 0.3;           // target self-glow luminance for every block colour
+  const materialCache = {};
+  function applyGlassParams(mat) {
+    mat.roughness = glassParams.roughness;
+    mat.ior = glassParams.ior;
+    mat.transmission = glassParams.transmission;
+    mat.clearcoat = glassParams.clearcoat;
+    mat.clearcoatRoughness = glassParams.clearcoatRoughness;
+    mat.needsUpdate = true;
+  }
+  function getBlockMats(color) {
+    if (materialCache[color]) return materialCache[color];
+    const c = new THREE.Color(color);
+    // Even glow across colours: bright hues (white/yellow) would otherwise blow out while dark
+    // ones (blue/purple) barely glow, so the emissive strength is normalised by luminance.
+    const lum = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;            // linear luminance
+    const glowScale = Math.min(2.0, Math.max(0.5, Math.sqrt(GLOW_LUMA / Math.max(lum, 0.01))));   // half-way correction
+    const mat = new THREE.MeshPhysicalMaterial({
+      color: c,                    // tints light passing through the glass
+      metalness: 0,
+      thickness: 0.5,              // refraction offset + volume tint (thinner → clearer)
+      attenuationColor: c,
+      attenuationDistance: 4.0,    // longer → less colour absorbed → more see-through
+      envMap: roomEnv,
+      envMapIntensity: 1.1,
+      emissive: c,
+      emissiveIntensity: glowScale, // self-lit glass: the block itself glows (bloom adds the halo)
+      specularIntensity: 1,
+      transparent: true,
+      opacity: GLASS_OPACITY       // blend with what's behind (grid lines show straight through)
+    });
+    applyGlassParams(mat);
+    materialCache[color] = mat;
+    return mat;
+  }
+
+  // Load the Blender model; swap its geometry into every block already on screen
+  new GLTFLoader().load('glass_block.gltf.json', (gltf) => {
+    let src = null;
+    gltf.scene.traverse(o => { if (o.isMesh && !src) src = o; });
+    if (!src) return;
+    const geo = src.geometry.clone();
+    src.updateWorldMatrix(true, false);
+    geo.applyMatrix4(src.matrixWorld);
+    geo.computeBoundingBox();
+    const bb = geo.boundingBox, size = new THREE.Vector3(), ctr = new THREE.Vector3();
+    bb.getSize(size); bb.getCenter(ctr);
+    geo.translate(-ctr.x, -ctr.y, -ctr.z);
+    geo.scale(0.92 / size.x, 0.92 / size.y, 0.92 / size.z);   // normalise to the game's block size
+    geo.computeBoundingSphere();
+    const m = src.material;
+    if (m) {
+      if (m.roughness !== undefined) glassParams.roughness = m.roughness;
+      if (m.ior !== undefined) glassParams.ior = m.ior;
+      if (m.transmission) glassParams.transmission = m.transmission;
+      if (m.clearcoat !== undefined) glassParams.clearcoat = m.clearcoat;
+      if (m.clearcoatRoughness !== undefined) glassParams.clearcoatRoughness = Math.max(m.clearcoatRoughness, 0.02);
+      Object.values(materialCache).forEach(applyGlassParams);
+    }
+    blockGeo = geo;
+    scene.traverse(o => { if (o.isMesh && o.geometry === fallbackBlockGeo) o.geometry = geo; });
+  }, undefined, (err) => console.warn('glass_block model failed to load; using built-in rounded cube', err));
+  const ghostMatCache = {};
+  function getGhostMat(color) {
+    if (!ghostMatCache[color]) {
+      ghostMatCache[color] = new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0.2, depthWrite: false
+      });
+    }
+    return ghostMatCache[color];
+  }
+
+  // Bomb cores and rings need per-mesh materials so each one can pulse on its own phase;
+  // the phase is stored once at creation instead of being recomputed from grid coordinates every frame.
+  const bombMeshes = new Set();
+
+  function makeBlock(color, hasBomb) {
+    const m = new THREE.Mesh(blockGeo, getBlockMats(color));
+    m.castShadow = true; m.receiveShadow = true;
+    if (hasBomb) {
+      const coreMat = new THREE.MeshStandardMaterial({
+        color: 0x401010, emissive: 0xff3820,
+        emissiveIntensity: 1.1, roughness: 0.3, metalness: 0.1
+      });
+      const core = new THREE.Mesh(bombCoreGeo, coreMat);
+      core.position.z = 0.35;
+      m.add(core);
+      const ringMat = new THREE.MeshBasicMaterial({ color: 0xff8040, transparent: true, opacity: 0.9 });
+      const ring = new THREE.Mesh(bombRingGeo, ringMat);
+      ring.position.z = 0.47;
+      m.add(ring);
+      m.userData.bombCore = core;
+      m.userData.bombRing = ring;
+      m.userData.bombPhase = Math.random() * Math.PI * 2;
+      bombMeshes.add(m);
+    }
+    return m;
+  }
+
+  // Return the per-mesh bomb materials to the GPU when a bomb mesh is retired.
+  function disposeBombMats(mesh) {
+    if (!mesh) return;
+    if (mesh.userData.bombCore) mesh.userData.bombCore.material.dispose();
+    if (mesh.userData.bombRing) mesh.userData.bombRing.material.dispose();
+    bombMeshes.delete(mesh);
+  }
+
+  function boardPos(col, row) {
+    return { x: col - COLS/2 + 0.5, y: ROWS/2 - row - 0.5, z: 0 };
+  }
+
+  // --- Effect light pool ---
+  // Adding/removing lights changes the scene's light count, which forces three.js to recompile
+  // every material's shader. With the glass (transmission) materials that stall can last longer
+  // than a whole line-clear effect, so the lightning was sometimes never drawn. Instead, a fixed
+  // set of point lights lives in the scene permanently (intensity 0 when idle) and effects borrow one.
+  const FX_LIGHT_COUNT = 4;
+  const fxLights = [];
+  for (let i = 0; i < FX_LIGHT_COUNT; i++) {
+    const l = new THREE.PointLight(0xffffff, 0, 10);
+    l.userData.busy = false;
+    scene.add(l);
+    fxLights.push(l);
+  }
+  function acquireFxLight(color, distance) {
+    const l = fxLights.find(x => !x.userData.busy);
+    if (!l) return null;                 // pool exhausted: effect runs without its light
+    l.userData.busy = true;
+    l.color.set(color); l.distance = distance; l.intensity = 0;
+    return l;
+  }
+  function releaseFxLight(l) {
+    if (!l) return;
+    l.intensity = 0; l.userData.busy = false;
+  }
+
+  // --- Explosion visuals ---
+  const explosions = [];
+  const EXPLOSION_LIGHT = 40;      // point-light intensity at the moment of the blast (was 4)
+  const EXPLOSION_GLOW = 3.5;      // fireball brightness multiplier (feeds the bloom)
+  function spawnExplosion(col, row, big) {
+    playBombSfx();
+    const pos = boardPos(col, row);
+    if (big) { pos.x += 0.5; pos.y -= 0.5; }        // centre of the 2x2 (col..col+1, row..row+1)
+    const size = big ? 2.2 : 1;
+    // Over-bright (HDR) fireball colour so the bloom pass makes it flare
+    const mat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color(0xffaa33).multiplyScalar(EXPLOSION_GLOW), transparent: true, opacity: 0.85, depthWrite: false
+    });
+    const mesh = new THREE.Mesh(explosionSphereGeo, mat);
+    mesh.position.set(pos.x, pos.y, pos.z);
+    scene.add(mesh);
+
+    const light = acquireFxLight(0xffaa33, big ? 24 : 16);
+    if (light) { light.position.set(pos.x, pos.y, pos.z + 1.2); light.intensity = EXPLOSION_LIGHT * (big ? 1.8 : 1); }
+
+    const debris = [];
+    for (let i = 0; i < (big ? 18 : 8); i++) {
+      const d = new THREE.Mesh(debrisGeo, debrisMat);
+      d.position.set(pos.x, pos.y, pos.z);
+      const a = Math.random() * Math.PI * 2;
+      const r = (4 + Math.random() * 3) * (big ? 1.6 : 1);
+      d.userData.vel = { x: Math.cos(a) * r, y: Math.sin(a) * r, z: (Math.random() - 0.3) * 3 };
+      d.userData.spin = { x: (Math.random() - 0.5) * 8, y: (Math.random() - 0.5) * 8 };
+      scene.add(d);
+      debris.push(d);
+    }
+
+    explosions.push({ mesh, light, debris, age: 0, duration: big ? 800 : 550, size, lightMax: EXPLOSION_LIGHT * (big ? 1.8 : 1) });
+  }
+  function updateExplosions(dt) {
+    for (let i = explosions.length - 1; i >= 0; i--) {
+      const ex = explosions[i];
+      ex.age += dt;
+      const t = Math.min(ex.age / ex.duration, 1);
+      if (t >= 1) {
+        scene.remove(ex.mesh); ex.mesh.material.dispose();  // geometry is shared
+        releaseFxLight(ex.light);
+        ex.debris.forEach(d => scene.remove(d));             // geometry + material shared
+        explosions.splice(i, 1);
+      } else {
+        ex.mesh.scale.setScalar((1 + t * 4) * ex.size);
+        ex.mesh.material.opacity = 0.85 * (1 - t);
+        if (ex.light) ex.light.intensity = ex.lightMax * (1 - t);
+        const dts = dt / 1000;
+        ex.debris.forEach(d => {
+          d.position.x += d.userData.vel.x * dts;
+          d.position.y += d.userData.vel.y * dts;
+          d.position.z += d.userData.vel.z * dts;
+          d.userData.vel.z -= 10 * dts;
+          d.rotation.x += d.userData.spin.x * dts;
+          d.rotation.y += d.userData.spin.y * dts;
+        });
+      }
+    }
+  }
+  function clearAllExplosions() {
+    explosions.forEach(ex => {
+      scene.remove(ex.mesh); ex.mesh.material.dispose();
+      releaseFxLight(ex.light);
+      ex.debris.forEach(d => scene.remove(d));
+    });
+    explosions.length = 0;
+  }
+
+  // --- Lightning (line-clear) visual ---
+  // A jagged bright bolt + a cyan additive glow bar run across each cleared row for the SFX duration.
+  const lightnings = [];
+  const LIGHTNING_SEGMENTS = 32;
+  // Shared glow-band geometry + vertical alpha gradient texture (center opaque → edges transparent)
+  const GLOW_HEIGHT = 0.9;
+  const glowPlaneGeo = new THREE.PlaneGeometry(COLS, GLOW_HEIGHT);
+  let glowTexture = null;
+  function getGlowTexture() {
+    if (glowTexture) return glowTexture;
+    const c = document.createElement('canvas');
+    c.width = 4; c.height = 128;
+    const g = c.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, 0, c.height);
+    grad.addColorStop(0.0, 'rgba(255,255,255,0)');
+    grad.addColorStop(0.5, 'rgba(255,255,255,1)');
+    grad.addColorStop(1.0, 'rgba(255,255,255,0)');
+    g.fillStyle = grad; g.fillRect(0, 0, c.width, c.height);
+    glowTexture = new THREE.CanvasTexture(c);
+    return glowTexture;
+  }
+  function spawnLightning(rowY, durationMs) {
+    const worldY = ROWS / 2 - rowY - 0.5;
+    const halfW = COLS / 2;
+    const z = 0.75;
+
+    const positions = new Float32Array((LIGHTNING_SEGMENTS + 1) * 3);
+    for (let i = 0; i <= LIGHTNING_SEGMENTS; i++) {
+      positions[i * 3]     = -halfW + (COLS * i) / LIGHTNING_SEGMENTS;
+      positions[i * 3 + 1] = worldY + (Math.random() - 0.5) * 0.35;
+      positions[i * 3 + 2] = z + (Math.random() - 0.5) * 0.2;
+    }
+    const boltGeo = new THREE.BufferGeometry();
+    boltGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const boltMat = new THREE.LineBasicMaterial({
+      color: 0xffffff, transparent: true, opacity: 1.0, depthWrite: false
+    });
+    const bolt = new THREE.Line(boltGeo, boltMat);
+    scene.add(bolt);
+
+    // Glow band: 0.9 tall, fades to transparent toward its top/bottom edges
+    const glowMat = new THREE.MeshBasicMaterial({
+      color: 0x2060ff, map: getGlowTexture(), transparent: true, opacity: 0.0,
+      blending: THREE.AdditiveBlending, depthWrite: false
+    });
+    const glow = new THREE.Mesh(glowPlaneGeo, glowMat);
+    glow.position.set(0, worldY, z - 0.05);
+    scene.add(glow);
+
+    // Point light to flare adjacent blocks
+    const light = acquireFxLight(0x5aa8ff, 8);
+    if (light) light.position.set(0, worldY, z + 0.4);
+
+    lightnings.push({
+      bolt, boltGeo, boltMat, light, glow, glowMat,
+      worldY, age: 0, duration: durationMs
+    });
+  }
+  // Driven by the loop's capped frame delta (not wall-clock), so a long frame can't swallow the effect
+  function updateLightning(dt) {
+    if (lightnings.length === 0) return;
+    for (let i = lightnings.length - 1; i >= 0; i--) {
+      const fx = lightnings[i];
+      fx.age += Math.min(dt, 50);
+      const t = fx.age / fx.duration;
+      if (t >= 1) {
+        scene.remove(fx.bolt);  fx.boltGeo.dispose();  fx.boltMat.dispose();
+        scene.remove(fx.glow);  fx.glowMat.dispose();
+        releaseFxLight(fx.light);
+        lightnings.splice(i, 1);
+        continue;
+      }
+      // Re-jitter the bolt points each frame for a crackling animation
+      const attr = fx.boltGeo.attributes.position;
+      const arr = attr.array;
+      for (let j = 0; j <= LIGHTNING_SEGMENTS; j++) {
+        arr[j * 3 + 1] = fx.worldY + (Math.random() - 0.5) * 0.35;
+        arr[j * 3 + 2] = 0.75 + (Math.random() - 0.5) * 0.2;
+      }
+      attr.needsUpdate = true;
+      // Opacity envelope: fast attack, flickering sustain, fast release
+      const env = t < 0.08 ? t / 0.08 : t > 0.9 ? (1 - t) / 0.1 : 1;
+      const flicker = 0.75 + Math.random() * 0.25;
+      fx.boltMat.opacity = env * flicker;
+      fx.glowMat.opacity = env * (0.45 + Math.random() * 0.15);
+      if (fx.light) fx.light.intensity = env * (1.3 + Math.random() * 0.6);
+    }
+  }
+  function clearAllLightning() {
+    lightnings.forEach(fx => {
+      scene.remove(fx.bolt);  fx.boltGeo.dispose();  fx.boltMat.dispose();
+      scene.remove(fx.glow);  fx.glowMat.dispose();
+      releaseFxLight(fx.light);
+    });
+    lightnings.length = 0;
+  }
+
+  // --- Game state ---
+  let board, boardMeshes, current, next, score, lines, level;
+  let dropCounter, dropInterval, lastTime;
+  let state = 'title';              // title | difficulty | playing | paused | over
+  let gameMode = 'normal';          // normal | hyper
+  let gameDifficulty = 'normal';    // easy | normal | hard
+  let pendingMode = null;           // mode picked, awaiting difficulty
+  let bag = [];
+  let pieceMeshes = [], ghostMeshes = [];
+  let isChaining = false;           // true while a chain reaction / fall settle is playing out
+  let chainTimeouts = [];           // scheduled timeouts for chain waves and settle checks
+  const fallingBlocks = [];         // meshes currently animating a fall into their new position
+
+  function cancelChain() {
+    chainTimeouts.forEach(clearTimeout);
+    chainTimeouts.length = 0;
+    fallingBlocks.length = 0;
+    isChaining = false;
+  }
+
+  function refillBag() {
+    const pool = diffCfg().pieces;
+    bag = [...pool];
+    for (let i = bag.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [bag[i], bag[j]] = [bag[j], bag[i]];
+    }
+  }
+  function newPiece() {
+    if (bag.length === 0) refillBag();
+    const type = bag.pop();
+    const shape = PIECES[type].map(r => [...r]);
+    const bomb = shape.map(r => r.map(() => 0));
+    const bombChance = gameMode === 'hyper' ? BOMB_CHANCE : 0;
+    let bigBomb = false;
+    if (gameMode === 'hyper' && type === 'O' && Math.random() < BIG_BOMB_PIECE_CHANCE) {
+      // Whole 2x2 piece is bombs → lands as a big bomb
+      bigBomb = true;
+      for (let y = 0; y < shape.length; y++)
+        for (let x = 0; x < shape[y].length; x++)
+          if (shape[y][x]) bomb[y][x] = 1;
+    } else if (bombChance > 0 && Math.random() < bombChance) {
+      const filled = [];
+      for (let y = 0; y < shape.length; y++)
+        for (let x = 0; x < shape[y].length; x++)
+          if (shape[y][x]) filled.push([x, y]);
+      if (filled.length > 0) {
+        const [bx, by] = filled[Math.floor(Math.random() * filled.length)];
+        bomb[by][bx] = 1;
+      }
+    }
+    return {
+      type, shape, bomb, bigBomb, color: COLORS[type],
+      x: Math.floor((COLS - shape[0].length) / 2), y: 0
+    };
+  }
+
+  function clearActiveMeshes() {
+    pieceMeshes.forEach(m => { disposeBombMats(m); scene.remove(m); });
+    ghostMeshes.forEach(m => scene.remove(m));
+    pieceMeshes = []; ghostMeshes = [];
+  }
+  function clearBoardMeshes() {
+    if (!boardMeshes) return;
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        const mesh = boardMeshes[y][x];
+        if (mesh) { disposeBombMats(mesh); scene.remove(mesh); boardMeshes[y][x] = null; }
+      }
+    }
+  }
+
+  function freshState() {
+    cancelChain();
+    clearActiveMeshes();
+    clearBoardMeshes();
+    clearAllExplosions();
+    clearAllLightning();
+    clearBigBombVisuals();
+    combo = 0; hideCombo();
+    board = Array.from({length: ROWS}, () => Array(COLS).fill(null));
+    boardMeshes = Array.from({length: ROWS}, () => Array(COLS).fill(null));
+    score = 0; lines = 0; level = 1;
+    dropCounter = 0; dropInterval = 800;
+    bag = [];
+    current = null; next = null;
+    updateStats();
+  }
+
+  function rotateShapeMatrix(m) {
+    const N = m.length;
+    const r = Array.from({length: N}, () => Array(N).fill(0));
+    for (let y = 0; y < N; y++)
+      for (let x = 0; x < N; x++)
+        r[x][N-1-y] = m[y][x];
+    return r;
+  }
+
+  function collide(piece, dx, dy, shape) {
+    shape = shape || piece.shape; dx = dx || 0; dy = dy || 0;
+    for (let y = 0; y < shape.length; y++) {
+      for (let x = 0; x < shape[y].length; x++) {
+        if (shape[y][x]) {
+          const nx = piece.x + x + dx, ny = piece.y + y + dy;
+          if (nx < 0 || nx >= COLS || ny >= ROWS) return true;
+          if (ny >= 0 && board[ny][nx]) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function merge(p) {
+    for (let y = 0; y < p.shape.length; y++) {
+      for (let x = 0; x < p.shape[y].length; x++) {
+        if (p.shape[y][x]) {
+          const ny = p.y + y, nx = p.x + x;
+          if (ny >= 0 && ny < ROWS && nx >= 0 && nx < COLS) {
+            const isBomb = p.bomb[y][x] === 1;
+            board[ny][nx] = { color: p.color, bomb: isBomb };
+            const mesh = makeBlock(p.color, isBomb);
+            const pos = boardPos(nx, ny);
+            mesh.position.set(pos.x, pos.y, pos.z);
+            boardMeshes[ny][nx] = mesh;
+            scene.add(mesh);
+          }
+        }
+      }
+    }
+  }
+
+  function removeCellsByKeys(keys) {
+    keys.forEach(k => {
+      const y = Math.floor(k / COLS), x = k % COLS;
+      const mesh = boardMeshes[y][x];
+      if (mesh) {
+        // Also forget any pending fall animation for this mesh
+        for (let i = fallingBlocks.length - 1; i >= 0; i--) {
+          if (fallingBlocks[i].mesh === mesh) fallingBlocks.splice(i, 1);
+        }
+        disposeBombMats(mesh);
+        scene.remove(mesh);
+        boardMeshes[y][x] = null;
+      }
+      board[y][x] = null;
+    });
+  }
+
+  const FALL_DURATION_MS = 320;   // how long a block takes to visibly fall into its new resting spot
+
+  function startFall(mesh, targetX, targetY, targetZ) {
+    // Snap horizontal position; animate the vertical fall from the mesh's current Y to the target Y.
+    // Replace any pending fall for the same mesh so we always animate from the current visual position.
+    for (let i = fallingBlocks.length - 1; i >= 0; i--) {
+      if (fallingBlocks[i].mesh === mesh) fallingBlocks.splice(i, 1);
+    }
+    mesh.position.x = targetX;
+    mesh.position.z = targetZ;
+    fallingBlocks.push({
+      mesh,
+      startY: mesh.position.y,
+      targetY: targetY,
+      startTime: performance.now(),
+      duration: FALL_DURATION_MS
+    });
+  }
+
+  function updateFalling(now) {
+    for (let i = fallingBlocks.length - 1; i >= 0; i--) {
+      const f = fallingBlocks[i];
+      if (!f.mesh.parent) { fallingBlocks.splice(i, 1); continue; }
+      const t = Math.min((now - f.startTime) / f.duration, 1);
+      const ease = 1 - (1 - t) * (1 - t);  // ease-out quad for a weighty drop
+      f.mesh.position.y = f.startY + (f.targetY - f.startY) * ease;
+      if (t >= 1) fallingBlocks.splice(i, 1);
+    }
+  }
+
+  function applyGravity(clearedKeys) {
+    // Per-column rule:
+    //   Each affected column packs its "above" blocks (rows 0..bottomY of that column)
+    //   down onto the top of whatever is preserved BELOW that column's lowest clear.
+    //   If the column has no block below the clear, packed blocks fall all the way
+    //   to the floor — passing straight through the cleared row into the empty space.
+    //   Columns that had no cleared cells this wave are left completely untouched.
+    if (!clearedKeys || clearedKeys.size === 0) return;
+    const colBottoms = new Map();
+    clearedKeys.forEach(k => {
+      const y = Math.floor(k / COLS), x = k % COLS;
+      const cur = colBottoms.get(x);
+      if (cur === undefined || y > cur) colBottoms.set(x, y);
+    });
+    for (const [x, bottomY] of colBottoms) {
+      // Landing floor: first row BELOW this column's lowest clear that still has a block.
+      // ROWS if nothing supports from below → the packed stack falls to the real floor.
+      let landingY = ROWS;
+      for (let y = bottomY + 1; y < ROWS; y++) {
+        if (board[y][x]) { landingY = y; break; }
+      }
+      // Pack rows 0..bottomY of this column onto landingY, stacking upward.
+      let writeY = landingY - 1;
+      for (let readY = bottomY; readY >= 0; readY--) {
+        if (board[readY][x]) {
+          if (writeY !== readY) {
+            const mesh = boardMeshes[readY][x];
+            board[writeY][x] = board[readY][x];
+            boardMeshes[writeY][x] = mesh;
+            board[readY][x] = null;
+            boardMeshes[readY][x] = null;
+            const pos = boardPos(x, writeY);
+            startFall(mesh, pos.x, pos.y, pos.z);
+          }
+          writeY--;
+        }
+      }
+    }
+  }
+
+  function classicShift(lineRows) {
+    // Classic Tetris: remove each cleared row entirely and shift the rows above it down as a block.
+    // Gaps already present in the stack above the cleared lines are preserved.
+    // Processing ascending keeps higher indices stable (splice at a lower index + unshift balances them).
+    const sortedAsc = [...lineRows].sort((a, b) => a - b);
+    for (const row of sortedAsc) {
+      board.splice(row, 1);
+      boardMeshes.splice(row, 1);
+      board.unshift(Array(COLS).fill(null));
+      boardMeshes.unshift(Array(COLS).fill(null));
+    }
+    // Animate any mesh whose row index moved into its new resting position.
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        const mesh = boardMeshes[y][x];
+        if (mesh) {
+          const pos = boardPos(x, y);
+          if (Math.abs(mesh.position.y - pos.y) > 0.001) {
+            startFall(mesh, pos.x, pos.y, pos.z);
+          }
+        }
+      }
+    }
+  }
+
+  // --- Big bombs ---
+  // Any 2x2 square of bomb cells on the board is a big bomb. Found greedily, top-left first,
+  // so overlapping squares never share a cell. Returns Map(cellKey -> group).
+  function findBigBombs() {
+    const map = new Map();
+    const isB = (x, y) => board[y][x] && board[y][x].bomb;
+    for (let y = 0; y < ROWS - 1; y++) {
+      for (let x = 0; x < COLS - 1; x++) {
+        const keys = [y * COLS + x, y * COLS + x + 1, (y + 1) * COLS + x, (y + 1) * COLS + x + 1];
+        if (keys.some(k => map.has(k))) continue;
+        if (isB(x, y) && isB(x + 1, y) && isB(x, y + 1) && isB(x + 1, y + 1)) {
+          const g = { big: true, x0: x, y0: y, keys };
+          keys.forEach(k => map.set(k, g));
+        }
+      }
+    }
+    return map;
+  }
+
+  // Visual: one large pulsing core + ring spanning the 2x2; the four small cores are hidden.
+  const bigBombVisuals = [];           // { group:THREE.Group, cells:[mesh x4], phase }
+  let bigBombSignature = '';
+  const bigCoreMat = new THREE.MeshStandardMaterial({ color: 0x401010, emissive: 0xff3010, emissiveIntensity: 1.4, roughness: 0.3 });
+  const bigRingMat = new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.9 });
+  function refreshBigBombs() {
+    const groups = new Set(findBigBombs().values());
+    const sig = [...groups].map(g => g.x0 + ',' + g.y0).sort().join('|');
+    if (sig === bigBombSignature) return;
+    bigBombSignature = sig;
+    bigBombVisuals.forEach(v => {
+      scene.remove(v.group);
+      v.cells.forEach(m => { if (m && m.userData.bombCore) { m.userData.bombCore.visible = true; if (m.userData.bombRing) m.userData.bombRing.visible = true; } });
+    });
+    bigBombVisuals.length = 0;
+    groups.forEach(g => {
+      const cells = g.keys.map(k => boardMeshes[Math.floor(k / COLS)][k % COLS]);
+      cells.forEach(m => { if (m && m.userData.bombCore) { m.userData.bombCore.visible = false; if (m.userData.bombRing) m.userData.bombRing.visible = false; } });
+      const grp = new THREE.Group();
+      const core = new THREE.Mesh(bombCoreGeo, bigCoreMat); core.scale.setScalar(2.1);
+      const ring = new THREE.Mesh(bombRingGeo, bigRingMat); ring.scale.setScalar(2.3); ring.position.z = 0.12;
+      grp.add(core, ring);
+      scene.add(grp);
+      bigBombVisuals.push({ group: grp, core, ring, cells, phase: Math.random() * 6.28 });
+    });
+  }
+  function updateBigBombs(time) {
+    refreshBigBombs();
+    const t = time * 0.004;
+    bigBombVisuals.forEach(v => {
+      // follow the four cells (they may be mid-fall)
+      let x = 0, y = 0, n = 0;
+      v.cells.forEach(m => { if (m && m.parent) { x += m.position.x; y += m.position.y; n++; } });
+      if (n) v.group.position.set(x / n, y / n, 0.42);
+      v.core.scale.setScalar(2.1 * (1 + Math.sin(t + v.phase) * 0.12));
+      v.ring.rotation.z = t * 0.8 + v.phase;
+    });
+    bigCoreMat.emissiveIntensity = 1.4 + Math.sin(t * 1.6) * 0.7;
+  }
+  function clearBigBombVisuals() {
+    bigBombVisuals.forEach(v => scene.remove(v.group));
+    bigBombVisuals.length = 0;
+    bigBombSignature = '';
+  }
+
+  // --- Combo ---
+  // Counts consecutive line-clear passes within one piece's resolution (see clearLines).
+  let combo = 0;
+  const comboEl = document.getElementById('combo-pop');
+  const COMBO_COLORS = ['#ff4d6d', '#ffb703', '#ffe14d', '#4ade80', '#38bdf8', '#a78bfa', '#f472b6'];
+  function colorize(text, offset) {
+    return [...text].map((c, i) =>
+      `<span class="ch" style="color:${COMBO_COLORS[(i + offset) % COMBO_COLORS.length]};animation-delay:${i * 45}ms">${c}</span>`
+    ).join('');
+  }
+  function showCombo(n) {
+    const off = n % COMBO_COLORS.length;
+    comboEl.innerHTML = `<span class="num">${colorize(String(n), off)}</span><span class="word">${colorize('COMBO!', off + 2)}</span>`;
+    comboEl.classList.remove('show');
+    void comboEl.offsetWidth;            // restart the animation
+    comboEl.classList.add('show');
+  }
+  function hideCombo() { comboEl.classList.remove('show'); comboEl.innerHTML = ''; }
+
+  function clearLines(depth, done) {
+    depth = depth || 0;
+    done = done || (() => {});
+    if (depth > 20) { done(); return; }   // safety cap on cascade length
+
+    const lineRows = [];
+    const initialBombs = [];
+    for (let y = ROWS - 1; y >= 0; y--) {
+      if (board[y].every(c => c)) {
+        lineRows.push(y);
+        for (let x = 0; x < COLS; x++) {
+          if (board[y][x].bomb) initialBombs.push({ x, y });
+        }
+      }
+    }
+    // Combo = successive clear passes caused by ONE placed piece, before the next piece spawns:
+    // the first clear (depth 0) is 1; every further clear triggered by blocks falling / bombs
+    // (depth 1, 2, ...) adds one. Lines that complete together in the same pass count once.
+    if (depth === 0) combo = 0;
+    if (lineRows.length === 0) { done(); return; }
+    combo = depth + 1;
+    if (combo >= 2) showCombo(combo);
+    // Timing: 170ms gap after the land SFX, then the ~420ms electric line-clear plays in full
+    // BEFORE the blocks actually disappear. Freeze the game during that window.
+    const SFX_LEAD_MS = 170;
+    const SFX_DURATION_MS = 420;
+    const BLOCK_REMOVE_DELAY_MS = SFX_LEAD_MS + SFX_DURATION_MS;
+    isChaining = true;
+    const sfxTimeout = setTimeout(() => {
+      playLineClearSfx();
+      lineRows.forEach(y => spawnLightning(y, SFX_DURATION_MS));
+    }, SFX_LEAD_MS);
+    chainTimeouts.push(sfxTimeout);
+
+    const lineCells = new Set();
+    const lineRowSet = new Set(lineRows);
+    lineRows.forEach(y => {
+      for (let x = 0; x < COLS; x++) lineCells.add(y * COLS + x);
+    });
+
+    // Scoring state accumulates across waves; each wave resolves its radius lazily
+    // against the CURRENT board, so bomb detection sees the holes left by earlier waves.
+    // Gravity is deferred: in a bomb chain, every wave only removes cells, then one
+    // big gravity pass runs AFTER the final wave so blocks only fall once at the end.
+    let totalBombOnlyCount = 0;
+    const seenBombPositions = new Set(initialBombs.map(b => b.y * COLS + b.x));
+    const chainClearedCells = new Set();   // union of every bomb-wave removal — used for the final gravity pass
+    const applyChainGravityIfNeeded = () => {
+      if (chainClearedCells.size > 0) applyGravity(chainClearedCells);
+    };
+
+    const finalize = () => {
+      const linePts = [0, 100, 300, 500, 800];
+      const n = lineRows.length;
+      const chainMul = depth > 0 ? 1 + depth * 0.5 : 1;
+      score += Math.round((linePts[n] || 800 + (n - 4) * 200) * level * chainMul);
+      if (totalBombOnlyCount > 0) {
+        score += Math.round(totalBombOnlyCount * 50 * level * chainMul);
+      }
+      lines += n;
+      const newLevel = Math.floor(lines * LEVEL_SPEED / 10) + 1;   // every ~6.7 lines
+      if (newLevel > level) {
+        level = newLevel;
+        dropInterval = Math.max(80, 800 - (level - 1) * 60);
+      }
+      updateStats();
+      isChaining = true;
+      const settleAndContinue = () => {
+        if (fallingBlocks.length > 0) {
+          const t = setTimeout(settleAndContinue, 40);
+          chainTimeouts.push(t);
+          return;
+        }
+        let hasNewLine = false;
+        for (let y = 0; y < ROWS; y++) {
+          if (board[y].every(c => c)) { hasNewLine = true; break; }
+        }
+        if (hasNewLine) {
+          clearLines(depth + 1, done);
+        } else {
+          isChaining = false;
+          done();
+        }
+      };
+      settleAndContinue();
+    };
+
+    // Execute one wave: resolve each bomb's radius against the CURRENT board state,
+    // remove the hit cells, trigger any bombs found inside the radius as next wave,
+    // then apply gravity. extraLineCells are added to the removal set (wave 0 only).
+    // When this wave contains any bomb detonations, give the explosion visual time to
+    // play before cells are removed and gravity drops the blocks. onDone is called with
+    // nextBombs after the removal has happened.
+    const EXPLOSION_HOLD_MS = 380;
+    const executeWave = (bombs, extraLineCells, onDone) => {
+      const radiusCleared = new Set();
+      const nextBombs = [];
+      // Big bombs are resolved against the CURRENT board too: a triggered cell that belongs to a
+      // 2x2 bomb square sets off the whole square as one big blast.
+      const bigMap = findBigBombs();
+      const resolved = [];
+      const usedGroups = new Set();
+      bombs.forEach(b => {
+        const g = b.big ? b : bigMap.get(b.y * COLS + b.x);
+        if (g) {
+          if (usedGroups.has(g.x0 + ',' + g.y0)) return;
+          usedGroups.add(g.x0 + ',' + g.y0);
+          g.keys.forEach(k => seenBombPositions.add(k));
+          resolved.push(g);
+        } else {
+          resolved.push(b);
+        }
+      });
+      bombs = resolved;
+      bombs.forEach(bomb => {
+        // normal: BOMB_RADIUS around the cell; big: BIG_BOMB_RADIUS around the whole 2x2
+        const R = bomb.big ? BIG_BOMB_RADIUS : BOMB_RADIUS;
+        const x0 = bomb.big ? bomb.x0 : bomb.x, y0 = bomb.big ? bomb.y0 : bomb.y;
+        const x1 = bomb.big ? bomb.x0 + 1 : bomb.x, y1 = bomb.big ? bomb.y0 + 1 : bomb.y;
+        for (let ny = y0 - R; ny <= y1 + R; ny++) {
+          for (let nx = x0 - R; nx <= x1 + R; nx++) {
+            if (nx < 0 || nx >= COLS || ny < 0 || ny >= ROWS) continue;
+            const key = ny * COLS + nx;
+            if (radiusCleared.has(key)) continue;
+            if (board[ny][nx]) {
+              radiusCleared.add(key);
+              if (board[ny][nx].bomb && !seenBombPositions.has(key)) {
+                const g = bigMap.get(key);
+                if (g) {
+                  g.keys.forEach(k => seenBombPositions.add(k));
+                  nextBombs.push(g);
+                } else {
+                  seenBombPositions.add(key);
+                  nextBombs.push({ x: nx, y: ny });
+                }
+              }
+            }
+          }
+        }
+      });
+      // Count bomb-only cells (hit by a blast, not already a line cell)
+      radiusCleared.forEach(key => {
+        const y = Math.floor(key / COLS);
+        if (!lineRowSet.has(y)) totalBombOnlyCount++;
+      });
+      // Combine radius with any extra (line) cells into a single removal set
+      const toRemove = new Set(radiusCleared);
+      if (extraLineCells) extraLineCells.forEach(k => toRemove.add(k));
+      bombs.forEach(b => b.big ? spawnExplosion(b.x0, b.y0, true) : spawnExplosion(b.x, b.y));
+
+      const doRemoval = () => {
+        removeCellsByKeys(toRemove);
+        if (bombs.length > 0) {
+          // Bomb wave: just stash the holes. Gravity happens once after the whole chain.
+          toRemove.forEach(k => chainClearedCells.add(k));
+        } else if (gameMode === 'hyper') {
+          applyGravity(toRemove);
+        } else if (extraLineCells) {
+          classicShift(lineRows);
+        }
+        onDone(nextBombs);
+      };
+
+      if (bombs.length > 0) {
+        // Hold on the explosion visual before destroying blocks and dropping them
+        const t = setTimeout(doRemoval, EXPLOSION_HOLD_MS);
+        chainTimeouts.push(t);
+      } else {
+        // No bombs this wave (plain line clear) → remove immediately
+        doRemoval();
+      }
+    };
+
+    // Delay wave 0 (the actual block removal) until the SFX has finished playing.
+    const removalTimeout = setTimeout(() => {
+      executeWave(initialBombs, lineCells, (nextBombs) => {
+        if (nextBombs.length === 0) {
+          // No chain. If wave 0 was a bomb wave, now is when gravity finally runs.
+          applyChainGravityIfNeeded();
+          finalize();
+          return;
+        }
+        // Chain: hold each wave's explosion for EXPLOSION_HOLD_MS, then only remove cells
+        // (no gravity). After the LAST wave finishes, run one combined gravity pass so
+        // every floating block falls together.
+        const STAGGER = 220;
+        let currentBombs = nextBombs;
+        let waveIdx = 1;
+        const scheduleWave = () => {
+          const t = setTimeout(() => {
+            executeWave(currentBombs, null, (freshNext) => {
+              waveIdx++;
+              currentBombs = freshNext;
+              if (currentBombs.length > 0 && waveIdx < 15) {
+                scheduleWave();
+              } else {
+                applyChainGravityIfNeeded();     // all explosions finished → blocks drop now
+                const tf = setTimeout(() => {
+                  isChaining = false;
+                  finalize();
+                }, 180);
+                chainTimeouts.push(tf);
+              }
+            });
+          }, STAGGER);
+          chainTimeouts.push(t);
+        };
+        scheduleWave();
+      });
+    }, BLOCK_REMOVE_DELAY_MS);
+    chainTimeouts.push(removalTimeout);
+  }
+
+  function updatePieceMeshes() {
+    clearActiveMeshes();
+    if (!current || (state !== 'playing' && state !== 'paused')) return;
+
+    let ghostDy = 0;
+    while (!collide(current, 0, ghostDy + 1)) ghostDy++;
+
+    const shape = current.shape;
+    for (let y = 0; y < shape.length; y++) {
+      for (let x = 0; x < shape[y].length; x++) {
+        if (shape[y][x]) {
+          const nx = current.x + x, ny = current.y + y, gy = ny + ghostDy;
+          const isBomb = current.bomb[y][x] === 1;
+          if (ny >= 0 && ny < ROWS) {
+            const m = makeBlock(current.color, isBomb);
+            const p = boardPos(nx, ny);
+            m.position.set(p.x, p.y, p.z);
+            scene.add(m); pieceMeshes.push(m);
+          }
+          if (ghostDy > 0 && gy >= 0 && gy < ROWS) {
+            const g = new THREE.Mesh(blockGeo, getGhostMat(current.color));
+            const p = boardPos(nx, gy);
+            g.position.set(p.x, p.y, p.z);
+            scene.add(g); ghostMeshes.push(g);
+          }
+        }
+      }
+    }
+    // Big-bomb piece: one large core over the 2x2 instead of four small ones
+    if (current.bigBomb && pieceMeshes.length) {
+      let cx = 0, cy = 0;
+      pieceMeshes.forEach(m => {
+        cx += m.position.x; cy += m.position.y;
+        if (m.userData.bombCore) { m.userData.bombCore.visible = false; if (m.userData.bombRing) m.userData.bombRing.visible = false; }
+      });
+      const grp = new THREE.Group();
+      const core = new THREE.Mesh(bombCoreGeo, bigCoreMat); core.scale.setScalar(2.1);
+      const ring = new THREE.Mesh(bombRingGeo, bigRingMat); ring.scale.setScalar(2.3); ring.position.z = 0.12;
+      grp.add(core, ring);
+      grp.position.set(cx / pieceMeshes.length, cy / pieceMeshes.length, 0.42);
+      scene.add(grp); pieceMeshes.push(grp);
+    }
+  }
+
+  function advancePiece() {
+    if (state === 'title' || state === 'difficulty' || state === 'over') return;
+    current = next;
+    next = newPiece();
+    drawNextPreview();
+    if (collide(current, 0, 0)) {
+      state = 'over';
+      stopBgm();
+      clearActiveMeshes();
+      const label = (gameMode === 'hyper' ? 'Hyper' : 'Normal') + ' · ' + diffCfg().label;
+      showOverlay('Game Over', 'スコア ' + score, 'もう一度', true, label);
+      return;
+    }
+    updateStats();
+    updatePieceMeshes();
+  }
+
+  function step() {
+    if (isChaining || !current) return;
+    if (collide(current, 0, 1)) {
+      merge(current);
+      playLandSfx();
+      current = null;
+      clearActiveMeshes();
+      // clearLines may freeze the game (chain). advancePiece runs when it's done.
+      clearLines(0, () => {
+        if (state === 'playing' || state === 'paused') advancePiece();
+      });
+    } else {
+      current.y++;
+      updatePieceMeshes();
+    }
+  }
+
+  function move(dx) {
+    if (!current || isChaining) return;
+    if (!collide(current, dx, 0)) {
+      current.x += dx; updatePieceMeshes();
+      playSoftDropSfx();
+    }
+  }
+  function softDrop() {
+    if (!current || isChaining) return;
+    if (!collide(current, 0, 1)) {
+      current.y++; score++; updateStats(); updatePieceMeshes();
+      playSoftDropSfx();
+    } else { step(); }
+    dropCounter = 0;
+  }
+  function hardDrop() {
+    if (!current || isChaining) return;
+    let drops = 0;
+    while (!collide(current, 0, 1)) { current.y++; drops++; }
+    score += drops * 2;
+    step();
+    dropCounter = 0;
+    updateStats();
+  }
+  function rotateCurrent() {
+    if (!current || isChaining) return;
+    const r = rotateShapeMatrix(current.shape);
+    const rb = rotateShapeMatrix(current.bomb);
+    const kicks = [0, -1, 1, -2, 2];
+    for (const k of kicks) {
+      if (!collide(current, k, 0, r)) {
+        current.x += k; current.shape = r; current.bomb = rb;
+        updatePieceMeshes();
+        playRotateSfx();
+        return;
+      }
+    }
+  }
+
+  function updateStats() {
+    scoreEl.textContent = score || 0;
+    if (linesEl) linesEl.textContent = lines || 0;   // Lines card removed from the HUD; count still drives level
+    levelEl.textContent = level || 1;
+  }
+
+  function showOverlay(title, text, btnText, showBack, modeLabel) {
+    ovTitle.textContent = title;
+    ovText.textContent = text || '';
+    ovBtn.textContent = btnText;
+    ovBack.hidden = !showBack;
+    ovReset.hidden = state !== 'paused';   // Reset lives in the pause menu
+    if (modeLabel) {
+      ovMode.textContent = modeLabel;
+      ovMode.classList.toggle('hyper', modeLabel.toLowerCase() === 'hyper');
+      ovMode.hidden = false;
+    } else {
+      ovMode.hidden = true;
+    }
+    overlay.hidden = false;
+    titleScreen.hidden = true;
+  }
+
+  function showTitle() {
+    state = 'title';
+    stopBgm();
+    pendingMode = null;
+    freshState();
+    drawNextPreview();
+    titleScreen.hidden = false;
+    difficultyScreen.hidden = true;
+    overlay.hidden = true;
+    if (modeIndicator) modeIndicator.hidden = true;
+    if (helpBomb) helpBomb.hidden = true;
+    setHudVisible(false);
+  }
+
+  function showDifficultyScreen(mode) {
+    pendingMode = mode === 'hyper' ? 'hyper' : 'normal';
+    state = 'difficulty';
+    loadBgm();   // preload during this user gesture so music starts with the game
+    const label = pendingMode === 'hyper' ? 'Hyper' : 'Normal';
+    chosenModeEl.textContent = 'Mode : ' + label;
+    // Card descriptions follow the selected mode's piece ladder
+    const NORMAL_DESCS = { easy: '5種類のブロック', normal: 'テトロミノ全7種類', hard: '11種類(+ ペントミノ4種)' };
+    difficultyScreen.querySelectorAll('.diff-card').forEach(card => {
+      const key = card.dataset.difficulty;
+      card.querySelector('.mode-desc').textContent =
+        pendingMode === 'hyper' ? HYPER_DIFFICULTIES[key].desc : NORMAL_DESCS[key];
+    });
+    chosenModeEl.classList.toggle('hyper', pendingMode === 'hyper');
+    titleScreen.hidden = true;
+    difficultyScreen.hidden = false;
+    overlay.hidden = true;
+    setHudVisible(false);
+  }
+
+  function startGame(mode, difficulty) {
+    gameMode = mode === 'hyper' ? 'hyper' : 'normal';
+    gameDifficulty = DIFFICULTIES[difficulty] ? difficulty : 'normal';
+    freshState();
+    current = newPiece();
+    next = newPiece();
+    updateStats();
+    drawNextPreview();
+
+    state = 'playing';
+    titleScreen.hidden = true;
+    difficultyScreen.hidden = true;
+    overlay.hidden = true;
+    setHudVisible(true);
+
+    // (Mode indicator removed from the side panel; mode is still shown on the pause/game-over screen)
+    if (helpBomb) helpBomb.hidden = gameMode !== 'hyper';
+
+    lastTime = performance.now();
+    dropCounter = 0;
+    updatePieceMeshes();
+    playBgm(true);
+  }
+
+  function pauseGame() {
+    if (state !== 'playing') return;
+    state = 'paused';
+    pauseBgm();
+    const label = (gameMode === 'hyper' ? 'Hyper' : 'Normal') + ' · ' + diffCfg().label;
+    showOverlay('Paused', '再開するにはPキー', '再開', true, label);
+  }
+  function resumeGame() {
+    if (state !== 'paused') return;
+    state = 'playing';
+    overlay.hidden = true;
+    lastTime = performance.now();
+    playBgm(false);
+  }
+
+  // Next-piece preview with bomb marker
+  function drawNextPreview() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = nextCanvas.clientWidth, h = nextCanvas.clientHeight;
+    if (!w || !h) return;
+    nextCanvas.width = w * dpr; nextCanvas.height = h * dpr;
+    const ctx = nextCanvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!next) return;
+    // Crop to the filled bounding box (big 4x4/5x5 matrices would otherwise render tiny/off-center)
+    let minX = Infinity, maxX = -1, minY = Infinity, maxY = -1;
+    next.shape.forEach((r, y) => r.forEach((v, x) => { if (v) {
+      if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y; } }));
+    const s = next.shape.slice(minY, maxY + 1).map(r => r.slice(minX, maxX + 1));
+    const bm = next.bomb.slice(minY, maxY + 1).map(r => r.slice(minX, maxX + 1));
+    const cols = s[0].length, rows = s.length;
+    const cell = Math.min(w / (cols + 1), h / (rows + 1));
+    const offX = (w - cols * cell) / 2;
+    const offY = (h - rows * cell) / 2;
+    const hex = '#' + next.color.toString(16).padStart(6, '0');
+    for (let y = 0; y < rows; y++) {
+      for (let x = 0; x < cols; x++) {
+        if (s[y][x]) {
+          const px = offX + x * cell, py = offY + y * cell;
+          ctx.fillStyle = hex;
+          ctx.fillRect(px + 1, py + 1, cell - 2, cell - 2);
+          ctx.fillStyle = 'rgba(255,255,255,0.22)';
+          ctx.fillRect(px + 1, py + 1, cell - 2, 3);
+          ctx.fillStyle = 'rgba(0,0,0,0.3)';
+          ctx.fillRect(px + 1, py + cell - 4, cell - 2, 3);
+          if (bm[y][x] && !next.bigBomb) {
+            ctx.fillStyle = '#ff3820';
+            ctx.beginPath();
+            ctx.arc(px + cell/2, py + cell/2, cell * 0.22, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            ctx.beginPath();
+            ctx.arc(px + cell/2 - cell*0.07, py + cell/2 - cell*0.07, cell * 0.07, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+    }
+    if (next.bigBomb) {
+      // one big bomb spanning the whole 2x2
+      const cx = offX + cols * cell / 2, cy = offY + rows * cell / 2;
+      ctx.fillStyle = '#ff3010';
+      ctx.beginPath(); ctx.arc(cx, cy, cell * 0.62, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#ffa040'; ctx.lineWidth = Math.max(1.5, cell * 0.08);
+      ctx.beginPath(); ctx.arc(cx, cy, cell * 0.8, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.beginPath(); ctx.arc(cx - cell * 0.2, cy - cell * 0.2, cell * 0.16, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+
+  function resize() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    renderer.setSize(w, h, false);
+    composer.setPixelRatio(renderer.getPixelRatio());
+    composer.setSize(w, h);
+    const aspect = w / h;
+    camera.aspect = aspect;
+
+    const padding = 1.5;
+    const fieldH = ROWS + padding * 2;
+    // Tall/narrow (phone) stages: trim side margin so the board fills the width
+    const fieldW = COLS + (aspect < 0.7 ? 0.6 : padding) * 2;
+    const fovRad = camera.fov * Math.PI / 180;
+    const distH = (fieldH / 2) / Math.tan(fovRad / 2);
+    const distW = (fieldW / 2) / Math.tan(fovRad / 2) / aspect;
+    const dist = Math.max(distH, distW);
+    camera.position.set(0, 1.2, dist);
+    camera.lookAt(0, -0.3, 0);
+    camera.updateProjectionMatrix();
+    drawNextPreview();
+  }
+
+  function updateBombPulse(time) {
+    // Iterate only the small set of actively-tracked bomb meshes rather than
+    // scanning every grid cell + piece mesh every frame.
+    if (bombMeshes.size === 0) return;
+    const t = time * 0.004;
+    for (const mesh of bombMeshes) {
+      if (!mesh.parent) { bombMeshes.delete(mesh); continue; }
+      const phase = mesh.userData.bombPhase;
+      const core = mesh.userData.bombCore;
+      core.scale.setScalar(1 + Math.sin(t + phase) * 0.18);
+      core.material.emissiveIntensity = 1.1 + Math.sin(t * 1.6 + phase) * 0.6;
+      const ring = mesh.userData.bombRing;
+      if (ring) {
+        ring.rotation.z = t * 0.6 + phase;
+        ring.material.opacity = 0.6 + Math.sin(t * 1.6 + phase) * 0.3;
+      }
+    }
+  }
+
+  function loop(time) {
+    const dt = Math.min(time - (lastTime || time), 100);
+    if (state === 'playing' && !isChaining) {
+      dropCounter += dt;
+      while (dropCounter > dropInterval && state === 'playing' && !isChaining) {
+        step();
+        dropCounter -= dropInterval;
+      }
+    }
+    lastTime = time;
+    updateBombPulse(time);
+    updateBigBombs(time);
+    updateExplosions(dt);
+    updateFalling(time);
+    updateLightning(dt);
+    composer.render();
+    requestAnimationFrame(loop);
+  }
+
+  // --- Input ---
+  document.addEventListener('keydown', (e) => {
+    // Title screen: 1/2 picks mode
+    if (state === 'title') {
+      if (e.key === '1') { showDifficultyScreen('normal'); e.preventDefault(); }
+      else if (e.key === '2') { showDifficultyScreen('hyper'); e.preventDefault(); }
+      return;
+    }
+    // Difficulty screen: 1/2/3 picks difficulty, Esc goes back
+    if (state === 'difficulty') {
+      if (e.key === '1') { startGame(pendingMode, 'easy'); e.preventDefault(); }
+      else if (e.key === '2') { startGame(pendingMode, 'normal'); e.preventDefault(); }
+      else if (e.key === '3') { startGame(pendingMode, 'hard'); e.preventDefault(); }
+      else if (e.key === 'Escape') { showTitle(); e.preventDefault(); }
+      return;
+    }
+    if (['ArrowLeft','ArrowRight','ArrowUp','ArrowDown',' '].includes(e.key)) e.preventDefault();
+    if (state === 'over') {
+      if (e.key === ' ' || e.key === 'Enter') startGame(gameMode, gameDifficulty);
+      else if (e.key === 'Escape') showTitle();
+      return;
+    }
+    if (state === 'paused') {
+      if (e.key === 'p' || e.key === 'P') resumeGame();
+      else if (e.key === 'Escape') showTitle();
+      return;
+    }
+    if (state !== 'playing') return;
+    switch(e.key) {
+      case 'ArrowLeft': move(-1); break;
+      case 'ArrowRight': move(1); break;
+      case 'ArrowDown': softDrop(); break;
+      case 'ArrowUp': rotateCurrent(); break;
+      case ' ': hardDrop(); break;
+      case 'p': case 'P': pauseGame(); break;
+      case 'Escape': pauseGame(); break;
+    }
+  });
+
+  // Title screen: mode cards go to difficulty screen
+  titleScreen.addEventListener('click', (e) => {
+    const btn = e.target.closest('.mode-card');
+    if (!btn) return;
+    showDifficultyScreen(btn.dataset.mode);
+  });
+
+  // Difficulty screen: difficulty cards start the game
+  difficultyScreen.addEventListener('click', (e) => {
+    const btn = e.target.closest('.mode-card');
+    if (!btn) return;
+    startGame(pendingMode, btn.dataset.difficulty);
+  });
+
+  // Touch gestures on the board:
+  //   tap → rotate, horizontal flick/drag → move one column per cell-width,
+  //   slow downward drag → soft drop per cell, fast downward flick → hard drop.
+  const touch = { id: null, x0: 0, y0: 0, ax: 0, ay: 0, t0: 0, axis: null, moved: false,
+                  lx: 0, ly: 0, lt: 0, vy: 0, vx: 0 };
+  function cellPx() {
+    // On-screen size of one board cell (world unit) at z=0
+    const fovRad = camera.fov * Math.PI / 180;
+    const dist = camera.position.z || 1;
+    const px = canvas.clientHeight / (2 * dist * Math.tan(fovRad / 2));
+    return Math.max(14, px * 0.9);
+  }
+  canvas.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return;
+    e.preventDefault();
+    if (touch.id !== null) return;
+    touch.id = e.pointerId;
+    touch.x0 = touch.ax = e.clientX;
+    touch.y0 = touch.ay = e.clientY;
+    touch.t0 = performance.now();
+    touch.axis = null; touch.moved = false;
+    touch.lx = e.clientX; touch.ly = e.clientY; touch.lt = touch.t0; touch.vx = touch.vy = 0;
+    try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== touch.id) return;
+    e.preventDefault();
+    // Smoothed finger velocity (px/ms) for flick detection on release
+    const now = performance.now(), sdt = Math.max(now - touch.lt, 1);
+    touch.vx = touch.vx * 0.4 + ((e.clientX - touch.lx) / sdt) * 0.6;
+    touch.vy = touch.vy * 0.4 + ((e.clientY - touch.ly) / sdt) * 0.6;
+    touch.lx = e.clientX; touch.ly = e.clientY; touch.lt = now;
+    if (state !== 'playing' || isChaining) { touch.ax = e.clientX; touch.ay = e.clientY; return; }
+    const tdx = e.clientX - touch.x0, tdy = e.clientY - touch.y0;
+    if (!touch.axis && Math.hypot(tdx, tdy) > 12) {
+      touch.axis = Math.abs(tdx) > Math.abs(tdy) ? 'x' : 'y';
+    }
+    const th = cellPx();
+    if (touch.axis === 'x') {
+      let dx = e.clientX - touch.ax;
+      while (dx >= th) { move(1); touch.ax += th; dx -= th; touch.moved = true; }
+      while (dx <= -th) { move(-1); touch.ax -= th; dx += th; touch.moved = true; }
+    } else if (touch.axis === 'y') {
+      let dy = e.clientY - touch.ay;
+      while (dy >= th) { softDrop(); touch.ay += th; dy -= th; touch.moved = true; }
+      if (dy < 0) touch.ay = Math.min(touch.ay, e.clientY);  // ignore upward drag
+    }
+  });
+  function endTouch(e, cancelled) {
+    if (e.pointerId !== touch.id) return;
+    touch.id = null;
+    if (cancelled || state !== 'playing' || isChaining) return;
+    const dt = performance.now() - touch.t0;
+    // Use the last tracked position: some browsers report 0,0 on touch release
+    const dx = touch.lx - touch.x0, dy = touch.ly - touch.y0;
+    const recent = performance.now() - touch.lt < 120;
+    const dist = Math.hypot(dx, dy);
+    if (!touch.axis && dist < 12 && dt < 350) {
+      rotateCurrent();
+    } else if (touch.axis === 'x' && !touch.moved && Math.abs(dx) > 20 && dt < 250) {
+      // Quick short flick that didn't reach a full cell still moves one column
+      move(dx > 0 ? 1 : -1);
+    } else if (touch.axis === 'y' && dy > 30 && recent && touch.vy > 0.6) {
+      hardDrop();
+    }
+  }
+  canvas.addEventListener('pointerup', (e) => endTouch(e, false));
+  canvas.addEventListener('pointercancel', (e) => endTouch(e, true));
+
+  // Sidebar buttons
+  document.getElementById('pause-btn').addEventListener('click', () => {
+    if (state === 'playing') pauseGame();
+    else if (state === 'paused') resumeGame();
+  });
+  // Reset is now in the pause menu
+  ovReset.addEventListener('click', () => {
+    if (state === 'paused') startGame(gameMode, gameDifficulty);
+  });
+
+  // Overlay buttons
+  ovBtn.addEventListener('click', () => {
+    if (state === 'paused') resumeGame();
+    else if (state === 'over') startGame(gameMode, gameDifficulty);
+  });
+  ovBack.addEventListener('click', showTitle);
+
+  // Silence BGM while the tab/app is in the background
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { if (bgm.source) pauseBgm(); }
+    else if (state === 'playing') playBgm(false);
+  });
+
+  window.addEventListener('resize', resize);
+  new ResizeObserver(resize).observe(canvas);
+
+  // Pre-compile every block colour's shader (and bomb/ghost/effect materials) up front,
+  // so the first appearance of a colour or effect mid-game doesn't stall a frame.
+  function prewarmMaterials() {
+    const tmp = new THREE.Group();
+    Object.values(COLORS).forEach((c, i) => {
+      const m = makeBlock(c, i === 0);
+      m.position.set(0, -1000, 0);
+      tmp.add(m);
+      tmp.add(new THREE.Mesh(blockGeo, getGhostMat(c)));
+    });
+    scene.add(tmp);
+    try { renderer.compile(scene, camera); } catch (e) {}
+    scene.remove(tmp);
+    tmp.traverse(o => { if (o.userData && o.userData.bombCore) disposeBombMats(o); });
+  }
+  prewarmMaterials();
+
+  // Boot — start on title screen
+  freshState();
+  resize();
+  requestAnimationFrame(loop);
+})();
+</script>
+
+</body></html>
