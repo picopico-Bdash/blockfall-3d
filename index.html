@@ -42,8 +42,9 @@ body::before {
 
 .app {
   display: flex; gap: 20px; align-items: stretch;
-  width: 100%; max-width: 880px;
-  height: 100%; max-height: 760px; min-height: 0;
+  /* Fill the window height; width follows the tall board (board column ≈ 0.62 × height + 200px sidebar) */
+  width: 100%; max-width: calc((100dvh - 32px) * 0.62 + 200px);
+  height: 100%; min-height: 0;
 }
 
 .stage {
@@ -426,7 +427,7 @@ body::before {
   body { padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
   #game-canvas { touch-action: none; }          /* no scroll/zoom on the board */
   /* Board on the left, compact info column on the right */
-  .app { flex-direction: row; max-height: none; height: 100%; gap: 8px; }
+  .app { flex-direction: row; max-width: none; height: 100%; gap: 8px; }
   .stage { flex: 1 1 auto; touch-action: none; }
   .sidebar { flex-direction: column; min-width: 84px; width: 84px; gap: 6px; }
   .sidebar .card { padding: 6px 8px; border-radius: 8px; }
@@ -2157,10 +2158,10 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     const aspect = w / h;
     camera.aspect = aspect;
 
-    const padding = 1.5;
-    const fieldH = ROWS + padding * 2;
+    const padding = 0.6;   // side margin around the board (smaller = bigger board)
+    const fieldH = ROWS + 1.1 * 2;   // vertical margin: room for the field frame's top & bottom rails
     // Tall/narrow (phone) stages: trim side margin so the board fills the width
-    const fieldW = COLS + (aspect < 0.7 ? 0.6 : padding) * 2;
+    const fieldW = COLS + (aspect < 0.7 ? 0.45 : padding) * 2;
     const fovRad = camera.fov * Math.PI / 180;
     const distH = (fieldH / 2) / Math.tan(fovRad / 2);
     const distW = (fieldW / 2) / Math.tan(fovRad / 2) / aspect;
