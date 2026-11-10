@@ -811,6 +811,10 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
   const keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
   keyLight.position.set(8, 12, 10);
   keyLight.castShadow = !LOW;
+  // Shadows are re-rendered only on frames where something moved (see markShadowsDirty / loop)
+  renderer.shadowMap.autoUpdate = false;
+  let shadowDirty = true, lastSceneChildCount = -1;
+  function markShadowsDirty() { shadowDirty = true; }
   keyLight.shadow.mapSize.set(1024, 1024);
   keyLight.shadow.camera.left = -10; keyLight.shadow.camera.right = 10;
   keyLight.shadow.camera.top = 14; keyLight.shadow.camera.bottom = -14;
@@ -855,11 +859,31 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
   // Block materials registered here are made invisible during the bloom-source render.
   const noBloomMats = new Set();
+  // Only bombs, explosions and lightning glow. When none are on screen the bloom-source render is
+  // skipped (Normal mode almost always); the bloom texture is cleared once so nothing stale is mixed in.
+  let bloomDirty = false;
+  function somethingGlows() {
+    return bombMeshes.size > 0 || explosions.length > 0 || lightnings.length > 0 || bigBombVisuals.length > 0;
+  }
+  function clearBloomTargets() {
+    const prev = renderer.getRenderTarget();
+    [bloomComposer.renderTarget1, bloomComposer.renderTarget2].forEach(rt => { renderer.setRenderTarget(rt); renderer.clear(); });
+    renderer.setRenderTarget(prev);
+  }
   function renderFrame() {
     if (LOW) { renderer.render(scene, camera); return; }
-    noBloomMats.forEach(m => { m.visible = false; });
-    bloomComposer.render();
-    noBloomMats.forEach(m => { m.visible = true; });
+    if (somethingGlows()) {
+      const sceneBg = scene.background;
+      scene.background = null;                       // bloom source: glowing things on black only
+      noBloomMats.forEach(m => { m.visible = false; });
+      bloomComposer.render();
+      noBloomMats.forEach(m => { m.visible = true; });
+      scene.background = sceneBg;
+      bloomDirty = true;
+    } else if (bloomDirty) {
+      clearBloomTargets();
+      bloomDirty = false;
+    }
     composer.render();
   }
 
@@ -897,6 +921,19 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     new THREE.Vector3(-COLS/2,  ROWS/2, 0.55),
     new THREE.Vector3(-COLS/2, -ROWS/2, 0.55)
   ]), frameMat));
+
+  // The selective-bloom setup used to render the backdrop, grid and frame a second time into the bloom
+  // source and add it on top, so on screen they appeared at twice their colour. Bake that into the
+  // materials (linear ×2) and leave them out of the bloom source: the picture stays the same, and the
+  // bloom pass can be skipped entirely whenever nothing glows.
+  if (!LOW) {
+    bgMat.color.multiplyScalar(2);
+    gridMat.color.multiplyScalar(2);
+    frameMat.color.multiplyScalar(2);
+    scene.background.multiplyScalar(2);   // the clear colour was doubled the same way
+    scene.fog.color.multiplyScalar(2);
+    [bgMat, gridMat, frameMat].forEach(m => noBloomMats.add(m));
+  }
 
   // Block + bomb geometry (shared across every block, created once)
   let blockGeo = null;   // rounded glass cube, built below once the helper exists
@@ -945,7 +982,9 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
   const fallbackBlockGeo = blockGeo;
 
   const GLASS_OPACITY = 0.55;
-  const BLOCK_TRANSMISSION = 0.2;  // 0 = solid tinted glass, 1 = fully transmissive (dark without emissive)
+  // 0 = no transmission. At 0.2 the refraction was barely visible but three.js still rendered the whole
+  // scene a second time every frame for it (~34% of frame time); 0 skips that pass entirely.
+  const BLOCK_TRANSMISSION = 0;
   const materialCache = {};
   function applyGlassParams(mat) {
     mat.roughness = glassParams.roughness;
@@ -1432,6 +1471,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
   }
 
   function updateFalling(now) {
+    if (fallingBlocks.length) markShadowsDirty();
     for (let i = fallingBlocks.length - 1; i >= 0; i--) {
       const f = fallingBlocks[i];
       if (!f.mesh.parent) { fallingBlocks.splice(i, 1); continue; }
@@ -1806,6 +1846,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
   }
 
   function updatePieceMeshes() {
+    markShadowsDirty();
     clearActiveMeshes();
     if (!current || (state !== 'playing' && state !== 'paused')) return;
 
@@ -2081,6 +2122,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     if (composer) {
       composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h);
       bloomComposer.setPixelRatio(renderer.getPixelRatio()); bloomComposer.setSize(w, h);
+      bloomDirty = true;
     }
     const aspect = w / h;
     camera.aspect = aspect;
@@ -2133,6 +2175,9 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     updateExplosions(dt);
     updateFalling(time);
     updateLightning(dt);
+    // blocks added/removed (landing, clears, big-bomb visuals) also need fresh shadows
+    if (scene.children.length !== lastSceneChildCount) { lastSceneChildCount = scene.children.length; shadowDirty = true; }
+    if (shadowDirty) { renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
     renderFrame();
     requestAnimationFrame(loop);
   }
