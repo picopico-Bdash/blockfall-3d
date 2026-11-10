@@ -636,7 +636,37 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
   rotateSfx.preload = 'auto'; rotateSfx.volume = 0.5;
   const bombSfx = new Audio('bomb.mp3');
   bombSfx.preload = 'auto'; bombSfx.volume = 0.6;
-  function playSfx(src, vol) {
+  // SFX are decoded once into AudioBuffers and played through Web Audio. Cloning an <audio> element
+  // per sound (the old way) made phones — iOS Safari especially — create/decode a media element on
+  // every move/rotate, which stalls input and frames. The clone path is only a fallback until decoded.
+  const sfxBuffers = {}, sfxLoading = {};
+  let sfxGain = null;
+  function loadSfxBuffers(ctx) {
+    [['land', 'land.mp3'], ['soft', 'softdrop.mp3'], ['rotate', 'rotate.mp3'], ['bomb', 'bomb.mp3']].forEach(([k, url]) => {
+      if (sfxBuffers[k] || sfxLoading[k]) return;
+      sfxLoading[k] = fetch(url).then(r => r.arrayBuffer())
+        .then(ab => new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej)))
+        .then(buf => { sfxBuffers[k] = buf; })
+        .catch(() => { sfxLoading[k] = null; });
+    });
+  }
+  const sfxLastAt = {};
+  function playSfx(key, src, vol) {
+    const ctx = audioCtx;
+    if (ctx && sfxBuffers[key] && ctx.state === 'running') {
+      // the same short sound more than ~25 times a second just piles up voices; skip the extras
+      const t = ctx.currentTime;
+      if (sfxLastAt[key] !== undefined && t - sfxLastAt[key] < 0.04) return;
+      sfxLastAt[key] = t;
+      if (!sfxGain) { sfxGain = ctx.createGain(); sfxGain.connect(ctx.destination); }
+      const node = ctx.createBufferSource(), g = ctx.createGain();
+      node.buffer = sfxBuffers[key]; g.gain.value = vol;
+      node.connect(g); g.connect(sfxGain);
+      node.onended = () => { node.disconnect(); g.disconnect(); };
+      node.start();
+      return;
+    }
+    if (!ctx) getAudioCtx();   // first sound: create the context (inside the user gesture) and start decoding
     try {
       const s = src.cloneNode();
       s.volume = vol;
@@ -644,10 +674,10 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
       if (p && p.catch) p.catch(() => {});
     } catch (e) {}
   }
-  function playLandSfx() { playSfx(landSfx, 0.5); }
-  function playSoftDropSfx() { playSfx(softDropSfx, 0.4); }
-  function playRotateSfx() { playSfx(rotateSfx, 0.5); }
-  function playBombSfx() { playSfx(bombSfx, 0.6); }
+  function playLandSfx() { playSfx('land', landSfx, 0.5); }
+  function playSoftDropSfx() { playSfx('soft', softDropSfx, 0.4); }
+  function playRotateSfx() { playSfx('rotate', rotateSfx, 0.5); }
+  function playBombSfx() { playSfx('bomb', bombSfx, 0.6); }
 
   // Line-clear SFX: synthesized electric zap (Web Audio) instead of a sample.
   // A buzzing sawtooth with an LFO + a filter sweep + a high-pass noise burst
@@ -658,6 +688,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
       audioCtx = new AC();
+      loadSfxBuffers(audioCtx);
     }
     if (audioCtx.state === 'suspended') { try { audioCtx.resume(); } catch (e) {} }
     return audioCtx;
@@ -708,6 +739,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
   }
   function stopBgm() { pauseBgm(); bgm.offset = 0; }
 
+  let lineNoiseBuf = null;
   function playLineClearSfx() {
     try {
       const ctx = getAudioCtx();
@@ -741,15 +773,19 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
       // Noise pre-shaped with a fast amplitude pulse baked into the samples:
       // a ~90Hz impulse train makes it crackle as "ジジジジ" instead of hissing as "シーッ".
-      const noiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
-      const nd = noiseBuf.getChannelData(0);
-      const pulseFreq = 90;
-      for (let i = 0; i < nd.length; i++) {
-        const phase = (i / ctx.sampleRate) * pulseFreq;
-        const pulse = (phase - Math.floor(phase));          // 0..1 sawtooth
-        const shape = pulse * pulse * (1 - pulse) * 6;      // emphasised crackle shape
-        nd[i] = (Math.random() * 2 - 1) * shape;
+      // Generated once and reused (it used to be rebuilt in JS on every line clear).
+      if (!lineNoiseBuf) {
+        lineNoiseBuf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+        const nd = lineNoiseBuf.getChannelData(0);
+        const pulseFreq = 90;
+        for (let i = 0; i < nd.length; i++) {
+          const phase = (i / ctx.sampleRate) * pulseFreq;
+          const pulse = (phase - Math.floor(phase));          // 0..1 sawtooth
+          const shape = pulse * pulse * (1 - pulse) * 6;      // emphasised crackle shape
+          nd[i] = (Math.random() * 2 - 1) * shape;
+        }
       }
+      const noiseBuf = lineNoiseBuf;
       const noise = ctx.createBufferSource();
       noise.buffer = noiseBuf;
       const noiseBP = ctx.createBiquadFilter();
@@ -814,9 +850,10 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
             : IS_MOBILE  ? { scale: 1,   min: 0.6,  max: 1,   slowMs: 20, fastMs: 17.8 }
             :              { scale: 1,   min: 1,    max: 1,   slowMs: 1e9, fastMs: 0 };
   let renderScale = RES.scale;
-  // Frame cap: never draw more than 60 fps (120 Hz phones would otherwise render twice as often);
-  // software GL draws at most ~30 fps like Apex Circuit's light mode.
-  const MIN_FRAME_MS = softwareGL ? 1000 / 30 - 4 : 1000 / 60 - 3;
+  // Frame cap: draw on every Nth display refresh so the spacing stays even. N comes from the measured
+  // refresh interval: 60/90 Hz → every frame, 120 Hz+ → every 2nd (60 fps); software GL aims for ~30 fps
+  // like Apex Circuit's light mode. (A fixed "skip if < 13.7 ms" threshold turned 90 Hz into a juddery 45.)
+  const TARGET_FPS = softwareGL ? 30 : 60;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW && !IS_MOBILE, powerPreference: 'high-performance' });
   renderer.setPixelRatio(DPR_BASE * renderScale);
@@ -1913,13 +1950,37 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     chainTimeouts.push(removalTimeout);
   }
 
+  // Moving / soft-dropping the same piece only repositions its meshes; they are rebuilt only when the
+  // piece or its rotation changes (rebuilding on every input created and disposed meshes constantly).
+  let meshPiece = null, meshShape = null;
+  function repositionPieceMeshes(ghostDy) {
+    const shape = current.shape, piecePos = [], ghostPos = [];
+    for (let y = 0; y < shape.length; y++) {
+      for (let x = 0; x < shape[y].length; x++) {
+        if (!shape[y][x]) continue;
+        const nx = current.x + x, ny = current.y + y, gy = ny + ghostDy;
+        if (ny >= 0 && ny < ROWS) piecePos.push(boardPos(nx, ny));
+        if (ghostDy > 0 && gy >= 0 && gy < ROWS) ghostPos.push(boardPos(nx, gy));
+      }
+    }
+    const cells = current.bigBomb ? pieceMeshes.length - 1 : pieceMeshes.length;
+    if (piecePos.length !== cells || ghostPos.length !== ghostMeshes.length) return false;
+    let cx = 0, cy = 0;
+    piecePos.forEach((p, i) => { pieceMeshes[i].position.set(p.x, p.y, p.z); cx += p.x; cy += p.y; });
+    ghostPos.forEach((p, i) => ghostMeshes[i].position.set(p.x, p.y, p.z));
+    if (current.bigBomb && cells) pieceMeshes[cells].position.set(cx / cells, cy / cells, 0.42);
+    return true;
+  }
   function updatePieceMeshes() {
     markShadowsDirty();
-    clearActiveMeshes();
-    if (!current || (state !== 'playing' && state !== 'paused')) return;
+    if (!current || (state !== 'playing' && state !== 'paused')) { clearActiveMeshes(); meshPiece = null; return; }
 
     let ghostDy = 0;
     while (!collide(current, 0, ghostDy + 1)) ghostDy++;
+
+    if (meshPiece === current && meshShape === current.shape && pieceMeshes.length && repositionPieceMeshes(ghostDy)) return;
+    clearActiveMeshes();
+    meshPiece = current; meshShape = current.shape;
 
     const shape = current.shape;
     for (let y = 0; y < shape.length; y++) {
@@ -2245,11 +2306,18 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     if (sc !== renderScale) { renderScale = sc; renderer.setPixelRatio(DPR_BASE * renderScale); }
   }
 
-  let lastDrawTime = 0;
+  let lastDrawTime = 0, lastRafTime = 0, rafMs = 1000 / 60, rafCount = 0;
   function loop(time) {
     requestAnimationFrame(loop);
-    if (lastDrawTime && time - lastDrawTime < MIN_FRAME_MS) return;   // frame cap (see MIN_FRAME_MS)
-    if (lastDrawTime) resolutionTick(time - lastDrawTime);
+    // refresh-interval estimate (ignores long gaps such as a hidden tab)
+    if (lastRafTime) { const iv = time - lastRafTime; if (iv > 4 && iv < 50) rafMs += (iv - rafMs) * 0.1; }
+    lastRafTime = time;
+    const every = Math.max(1, Math.round((1000 / TARGET_FPS) / rafMs - 0.25));
+    if (++rafCount % every) return;
+    // The title / difficulty screens cover the board with an opaque picture: nothing 3D to draw.
+    if (state === 'title' || state === 'difficulty') { lastDrawTime = 0; lastTime = time; debugTick(time, 0); return; }
+    const frameMs = lastDrawTime ? time - lastDrawTime : 0;
+    if (frameMs) resolutionTick(frameMs);
     lastDrawTime = time;
     const dt = Math.min(time - (lastTime || time), 100);
     if (state === 'playing' && !isChaining) {
@@ -2268,7 +2336,34 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     // blocks added/removed (landing, clears, big-bomb visuals) also need fresh shadows
     if (scene.children.length !== lastSceneChildCount) { lastSceneChildCount = scene.children.length; shadowDirty = true; }
     if (shadowDirty) { renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
+    const r0 = performance.now();
     renderFrame();
+    debugTick(time, performance.now() - r0);
+  }
+
+  // ?debug=1 → small overlay with the measured frame interval, render time and resolution, to find out
+  // on a real phone what is slow (the frame interval includes everything; "render" is CPU-side only).
+  const DEBUG = /[?&#]debug=1/.test(location.search + location.hash);
+  let dbgEl = null, dbgAcc = [], dbgRender = 0, dbgLast = 0, dbgPrev = 0;
+  function debugTick(time, renderMs) {
+    if (!DEBUG) return;
+    if (!dbgEl) {
+      dbgEl = document.createElement('div');
+      dbgEl.style.cssText = 'position:fixed;left:4px;bottom:4px;z-index:99;font:11px/1.35 monospace;color:#9f9;background:rgba(0,0,0,.65);padding:4px 6px;border-radius:4px;pointer-events:none;white-space:pre';
+      document.body.appendChild(dbgEl);
+    }
+    if (dbgPrev) dbgAcc.push(time - dbgPrev);
+    dbgPrev = time; dbgRender += renderMs;
+    if (time - dbgLast < 1000 || !dbgAcc.length) return;
+    const a = dbgAcc.slice().sort((x, y) => x - y), avg = a.reduce((x, y) => x + y, 0) / a.length;
+    const info = renderer.info.render;
+    dbgEl.textContent = [
+      (LOW ? 'LOW' : 'HIGH') + (IS_MOBILE ? ' mobile' : '') + '  ' + (1000 / avg).toFixed(0) + ' fps',
+      'frame ' + avg.toFixed(1) + ' / p95 ' + a[Math.floor(a.length * 0.95)].toFixed(1) + ' ms  refresh ' + rafMs.toFixed(1) + ' ms',
+      'render(cpu) ' + (dbgRender / a.length).toFixed(2) + ' ms  calls ' + info.calls + '  tris ' + info.triangles,
+      'canvas ' + renderer.domElement.width + 'x' + renderer.domElement.height + '  scale ' + renderScale
+    ].join('\n');
+    dbgAcc = []; dbgRender = 0; dbgLast = time;
   }
 
   // --- Quality switch (title screen): auto → high → low → auto; applied by reloading ---
