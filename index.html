@@ -798,11 +798,28 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     if (h) qualityPref = h[1]; else if (q) qualityPref = q;
   } catch (e) {}
   const softwareGL = detectSoftwareGL();
-  const LOW = qualityPref === 'low' || (qualityPref === 'auto' && softwareGL);
-  const LOW_RENDER_SCALE = 0.6;      // internal resolution in light mode (CSS scales it up)
+  // Phones / tablets: the glass + bloom + shadow pipeline is too heavy for mobile GPUs (and their
+  // 2–3× pixel density makes it worse), so "auto" picks the light pipeline there too (as in Apex Circuit).
+  const IS_MOBILE = (window.matchMedia && matchMedia('(pointer: coarse)').matches) ||
+                    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);   // iPadOS
+  const LOW = qualityPref === 'low' || (qualityPref === 'auto' && (softwareGL || IS_MOBILE));
 
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(LOW ? LOW_RENDER_SCALE : Math.min(window.devicePixelRatio || 1, 2));
+  // Render resolution (Apex Circuit style): pixel-ratio base × a render scale that dynamic resolution
+  // adjusts to the measured frame time. Software GL starts at 60 % of 1×; phones get up to 1.5× (sharp
+  // enough on a small screen, ~half the pixels of a 3× display); desktop stays at up to 2×.
+  const DPR = window.devicePixelRatio || 1;
+  const DPR_BASE = softwareGL ? Math.min(DPR, 1) : Math.min(DPR, IS_MOBILE ? 1.5 : 2);
+  const RES = softwareGL ? { scale: 0.6, min: 0.35, max: 0.8, slowMs: 45, fastMs: 36 }
+            : IS_MOBILE  ? { scale: 1,   min: 0.6,  max: 1,   slowMs: 20, fastMs: 17.8 }
+            :              { scale: 1,   min: 1,    max: 1,   slowMs: 1e9, fastMs: 0 };
+  let renderScale = RES.scale;
+  // Frame cap: never draw more than 60 fps (120 Hz phones would otherwise render twice as often);
+  // software GL draws at most ~30 fps like Apex Circuit's light mode.
+  const MIN_FRAME_MS = softwareGL ? 1000 / 30 - 4 : 1000 / 60 - 3;
+
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: !LOW && !IS_MOBILE, powerPreference: 'high-performance' });
+  renderer.setPixelRatio(DPR_BASE * renderScale);
   renderer.shadowMap.enabled = !LOW;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1102,6 +1119,25 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     return ghostMatCache[color];
   }
 
+  // Light mode has no bloom, so bombs get a cheap additive halo sprite instead (one shared texture/material;
+  // the sprite is a child of the core, so it pulses with the core's scale).
+  let haloMat = null;
+  function addBombHalo(core, size) {
+    if (!LOW) return;
+    if (!haloMat) {
+      const c = document.createElement('canvas'); c.width = c.height = 64;
+      const g = c.getContext('2d'), grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, 'rgba(255,140,80,1)'); grad.addColorStop(0.35, 'rgba(255,70,30,0.55)'); grad.addColorStop(1, 'rgba(255,40,10,0)');
+      g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+      const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
+      haloMat = new THREE.SpriteMaterial({ map: tex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, opacity: 0.85 });
+    }
+    const halo = new THREE.Sprite(haloMat);
+    halo.scale.setScalar(size);
+    halo.position.z = 0.16;   // just in front of the block's glass face so the depth test keeps it visible
+    core.add(halo);
+  }
+
   // Bomb cores and rings need per-mesh materials so each one can pulse on its own phase;
   // the phase is stored once at creation instead of being recomputed from grid coordinates every frame.
   const bombMeshes = new Set();
@@ -1118,6 +1154,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
           });
       const core = new THREE.Mesh(bombCoreGeo, coreMat);
       core.position.z = 0.35;
+      addBombHalo(core, 1.25);
       m.add(core);
       const ringMat = new THREE.MeshBasicMaterial({ color: 0xff8040, transparent: true, opacity: 0.9 });
       const ring = new THREE.Mesh(bombRingGeo, ringMat);
@@ -1618,7 +1655,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
       const cells = g.keys.map(k => boardMeshes[Math.floor(k / COLS)][k % COLS]);
       cells.forEach(m => { if (m && m.userData.bombCore) { m.userData.bombCore.visible = false; if (m.userData.bombRing) m.userData.bombRing.visible = false; } });
       const grp = new THREE.Group();
-      const core = new THREE.Mesh(bombCoreGeo, bigCoreMat); core.scale.setScalar(2.1);
+      const core = new THREE.Mesh(bombCoreGeo, bigCoreMat); core.scale.setScalar(2.1); addBombHalo(core, 1.25);
       const ring = new THREE.Mesh(bombRingGeo, bigRingMat); ring.scale.setScalar(2.3); ring.position.z = 0.12;
       grp.add(core, ring);
       scene.add(grp);
@@ -1913,7 +1950,7 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
         if (m.userData.bombCore) { m.userData.bombCore.visible = false; if (m.userData.bombRing) m.userData.bombRing.visible = false; }
       });
       const grp = new THREE.Group();
-      const core = new THREE.Mesh(bombCoreGeo, bigCoreMat); core.scale.setScalar(2.1);
+      const core = new THREE.Mesh(bombCoreGeo, bigCoreMat); core.scale.setScalar(2.1); addBombHalo(core, 1.25);
       const ring = new THREE.Mesh(bombRingGeo, bigRingMat); ring.scale.setScalar(2.3); ring.position.z = 0.12;
       grp.add(core, ring);
       grp.position.set(cx / pieceMeshes.length, cy / pieceMeshes.length, 0.42);
@@ -2193,7 +2230,27 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     }
   }
 
+  // Dynamic resolution: average the frame time over ~1.5 s of play; lower the render scale when frames
+  // run long, raise it again when there is headroom.
+  let resAccMs = 0, resFrames = 0;
+  function resolutionTick(frameMs) {
+    if (RES.min === RES.max || state !== 'playing' || frameMs > 250) { resAccMs = resFrames = 0; return; }   // >250 ms: tab was hidden
+    resAccMs += frameMs; resFrames++;
+    if (resAccMs < 1500) return;
+    const ms = resAccMs / resFrames; resAccMs = resFrames = 0;
+    let sc = renderScale;
+    if (ms > RES.slowMs) sc = Math.max(RES.min, sc - 0.1);
+    else if (ms < RES.fastMs) sc = Math.min(RES.max, sc + 0.05);
+    sc = Math.round(sc * 100) / 100;
+    if (sc !== renderScale) { renderScale = sc; renderer.setPixelRatio(DPR_BASE * renderScale); }
+  }
+
+  let lastDrawTime = 0;
   function loop(time) {
+    requestAnimationFrame(loop);
+    if (lastDrawTime && time - lastDrawTime < MIN_FRAME_MS) return;   // frame cap (see MIN_FRAME_MS)
+    if (lastDrawTime) resolutionTick(time - lastDrawTime);
+    lastDrawTime = time;
     const dt = Math.min(time - (lastTime || time), 100);
     if (state === 'playing' && !isChaining) {
       dropCounter += dt;
@@ -2212,7 +2269,6 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     if (scene.children.length !== lastSceneChildCount) { lastSceneChildCount = scene.children.length; shadowDirty = true; }
     if (shadowDirty) { renderer.shadowMap.needsUpdate = true; shadowDirty = false; }
     renderFrame();
-    requestAnimationFrame(loop);
   }
 
   // --- Quality switch (title screen): auto → high → low → auto; applied by reloading ---
@@ -2221,7 +2277,8 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
   const qualityNote = document.getElementById('quality-note');
   const qPref = QUALITY_ORDER.includes(qualityPref) ? qualityPref : 'auto';
   qualityBtn.textContent = '画質：' + (qPref === 'auto' ? (LOW ? '自動（軽量）' : '自動（高画質）') : (qPref === 'high' ? '高画質' : '軽量'));
-  qualityNote.hidden = !(softwareGL && LOW);
+  qualityNote.hidden = !(qPref === 'auto' && LOW);
+  if (!softwareGL && IS_MOBILE) qualityNote.textContent = 'スマートフォン・タブレットのため軽量モードで動作中';
   qualityBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     const nextPref = QUALITY_ORDER[(QUALITY_ORDER.indexOf(qPref) + 1) % QUALITY_ORDER.length];
