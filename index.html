@@ -914,13 +914,14 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
   // Cyan field frame
   const frameMat = new THREE.LineBasicMaterial({ color: 0x5ee3ff, transparent: true, opacity: 0.8 });
-  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+  const frameLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(-COLS/2, -ROWS/2, 0.55),
     new THREE.Vector3( COLS/2, -ROWS/2, 0.55),
     new THREE.Vector3( COLS/2,  ROWS/2, 0.55),
     new THREE.Vector3(-COLS/2,  ROWS/2, 0.55),
     new THREE.Vector3(-COLS/2, -ROWS/2, 0.55)
-  ]), frameMat));
+  ]), frameMat);
+  scene.add(frameLine);   // fallback until the Blender frame model has loaded
 
   // The selective-bloom setup used to render the backdrop, grid and frame a second time into the bloom
   // source and add it on top, so on screen they appeared at twice their colour. Bake that into the
@@ -934,6 +935,35 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     scene.fog.color.multiplyScalar(2);
     [bgMat, gridMat, frameMat].forEach(m => noBloomMats.add(m));
   }
+
+  // Field frame modelled in Blender (field_frame.gltf.json): bevelled metal bars, a dark inner lip,
+  // a cyan neon tube along the inner front edge and corner brackets. It replaces the thin line frame.
+  // Its materials stay out of the bloom source so the frame looks the same whether or not bombs glow.
+  new GLTFLoader().load('field_frame.gltf.json', (gltf) => {
+    const root = gltf.scene;
+    root.traverse(o => {
+      if (!o.isMesh) return;
+      const src = o.material;
+      const isNeon = /neon/i.test(src.name || '');
+      let mat;
+      if (LOW) {
+        mat = isNeon ? new THREE.MeshBasicMaterial({ color: src.emissive ? src.emissive.clone() : 0x5ee3ff })
+                     : new THREE.MeshLambertMaterial({ color: src.color.clone() });
+      } else if (isNeon) {
+        mat = src;
+        mat.emissiveIntensity = Math.min(mat.emissiveIntensity || 1, 2.2);
+        mat.toneMapped = false;
+      } else {
+        mat = src;
+        mat.envMap = roomEnv; mat.envMapIntensity = 0.9;
+        o.castShadow = true; o.receiveShadow = true;
+      }
+      o.material = mat;
+      noBloomMats.add(mat);
+    });
+    scene.add(root);
+    frameLine.visible = false;
+  }, undefined, (err) => console.warn('field frame model failed to load; keeping the line frame', err));
 
   // Block + bomb geometry (shared across every block, created once)
   let blockGeo = null;   // rounded glass cube, built below once the helper exists
@@ -2135,8 +2165,10 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     const distH = (fieldH / 2) / Math.tan(fovRad / 2);
     const distW = (fieldW / 2) / Math.tan(fovRad / 2) / aspect;
     const dist = Math.max(distH, distW);
-    camera.position.set(0, 1.2, dist);
-    camera.lookAt(0, -0.3, 0);
+    // Look straight at the board. The old camera sat above centre looking slightly down, which made
+    // the field appear narrower toward the bottom (keystone).
+    camera.position.set(0, 0, dist);
+    camera.lookAt(0, 0, 0);
     camera.updateProjectionMatrix();
     drawNextPreview();
   }
