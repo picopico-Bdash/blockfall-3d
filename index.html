@@ -42,9 +42,10 @@ body::before {
 
 .app {
   display: flex; gap: 20px; align-items: stretch;
-  /* Fill the window height; width follows the tall board (board column ≈ 0.62 × height + 200px sidebar) */
-  width: 100%; max-width: calc((100dvh - 32px) * 0.62 + 200px);
-  height: 100%; min-height: 0;
+  /* 75 % of the window height (centred); width follows the tall board (board column ≈ 0.62 × height + 200px sidebar) */
+  --app-scale: 0.75;
+  width: 100%; max-width: calc((100dvh - 32px) * var(--app-scale) * 0.62 + 200px);
+  height: calc(100% * var(--app-scale)); min-height: 0;
 }
 
 .stage {
@@ -427,7 +428,9 @@ body::before {
   body { padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
   #game-canvas { touch-action: none; }          /* no scroll/zoom on the board */
   /* Board on the left, compact info column on the right */
-  .app { flex-direction: row; max-width: none; height: 100%; gap: 8px; }
+  /* Phones: board column at 75 % (the 84px info column + 8px gap keep their size), centred */
+  .app { flex-direction: row; max-width: none; gap: 8px;
+         width: calc((100% - 92px) * var(--app-scale) + 92px); height: calc(100% * var(--app-scale)); }
   .stage { flex: 1 1 auto; touch-action: none; }
   .sidebar { flex-direction: column; min-width: 84px; width: 84px; gap: 6px; }
   .sidebar .card { padding: 6px 8px; border-radius: 8px; }
