@@ -3,6 +3,8 @@
 <style>
 html,body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
 img,canvas,svg{-webkit-user-drag:none;-webkit-touch-callout:none}
+*{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+html{touch-action:manipulation}
 input,textarea,[contenteditable],[contenteditable] *{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
 </style>
 <script>
@@ -13,6 +15,8 @@ input,textarea,[contenteditable],[contenteditable] *{-webkit-user-select:text;us
   addEventListener('pointerdown',function(e){if(e.pointerType!=='mouse')lastTouch=Date.now()},true);
   // タッチの長押しで出るメニューだけ止める（PCの右クリックはそのまま）
   addEventListener('contextmenu',function(e){if(Date.now()-lastTouch<1500&&!ok(e.target))e.preventDefault()},true);
+  // iOS: 長押し・ダブルタップ長押しで出る拡大鏡（ルーペ）を止める。ボタン等のタップはそのまま
+  addEventListener('touchstart',function(e){var t=e.target;if(t&&t.closest&&t.closest('button,a,input,textarea,select,label,[contenteditable]'))return;e.preventDefault()},{capture:true,passive:false});
   addEventListener('selectstart',function(e){if(!ok(e.target))e.preventDefault()},true);
 })();
 </script>
