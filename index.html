@@ -469,6 +469,10 @@ body::before {
   .mode-card { padding: 14px; }
   .overlay h2 { font-size: 24px; }
 }
+/* Phones / touch devices: use the whole screen (no 75 % shrink) */
+@media (max-width: 640px), (pointer: coarse) {
+  .app { --app-scale: 1; }
+}
 </style>
 
 <div class="app no-hud">
