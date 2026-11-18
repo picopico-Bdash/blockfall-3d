@@ -491,14 +491,11 @@ body::before {
         <div class="mode-grid">
           <button class="mode-card" data-mode="normal">
             <span class="mode-label">Normal</span>
-            <span class="mode-desc">クラシックルール</span>
           </button>
           <button class="mode-card mode-card-hyper" data-mode="hyper">
             <span class="mode-label">Hyper</span>
-            <span class="mode-desc">爆弾ブロック入り</span>
           </button>
         </div>
-        <p class="title-hint"><kbd>1</kbd><kbd>2</kbd> キーで選択</p>
         <button class="quality-btn" id="quality-btn" type="button">画質：自動</button>
         <p class="quality-note" id="quality-note" hidden>グラフィック処理（ハードウェアアクセラレーション）が使えないため、軽量モードで動作中</p>
       </div>
@@ -510,18 +507,14 @@ body::before {
         <div class="mode-grid">
           <button class="mode-card diff-card" data-difficulty="easy">
             <span class="mode-label">Easy</span>
-            <span class="mode-desc">5種類のブロック</span>
           </button>
           <button class="mode-card diff-card" data-difficulty="normal">
             <span class="mode-label">Normal</span>
-            <span class="mode-desc">テトロミノ全7種類</span>
           </button>
           <button class="mode-card diff-card diff-hard" data-difficulty="hard">
             <span class="mode-label">Hard</span>
-            <span class="mode-desc">11種類(+ ペントミノ4種)</span>
           </button>
         </div>
-        <p class="title-hint"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> キーで選択</p>
         <button class="quality-btn back-btn" id="back-btn" type="button">← 戻る</button>
       </div>
     </div>
@@ -2157,13 +2150,6 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
     loadBgm();   // preload during this user gesture so music starts with the game
     const label = pendingMode === 'hyper' ? 'Hyper' : 'Normal';
     chosenModeEl.textContent = 'Mode : ' + label;
-    // Card descriptions follow the selected mode's piece ladder
-    const NORMAL_DESCS = { easy: '5種類のブロック', normal: 'テトロミノ全7種類', hard: '11種類(+ ペントミノ4種)' };
-    difficultyScreen.querySelectorAll('.diff-card').forEach(card => {
-      const key = card.dataset.difficulty;
-      card.querySelector('.mode-desc').textContent =
-        pendingMode === 'hyper' ? HYPER_DIFFICULTIES[key].desc : NORMAL_DESCS[key];
-    });
     chosenModeEl.classList.toggle('hyper', pendingMode === 'hyper');
     titleScreen.hidden = true;
     difficultyScreen.hidden = false;
