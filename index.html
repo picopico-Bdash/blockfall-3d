@@ -16,7 +16,10 @@ input,textarea,[contenteditable],[contenteditable] *{-webkit-user-select:text;us
   // タッチの長押しで出るメニューだけ止める（PCの右クリックはそのまま）
   addEventListener('contextmenu',function(e){if(Date.now()-lastTouch<1500&&!ok(e.target))e.preventDefault()},true);
   // iOS: 長押し・ダブルタップ長押しで出る拡大鏡（ルーペ）を止める。ボタン等のタップはそのまま
-  addEventListener('touchstart',function(e){var t=e.target;if(t&&t.closest&&t.closest('button,a,input,textarea,select,label,[contenteditable]'))return;e.preventDefault()},{capture:true,passive:false});
+  var noLoupe=function(e){var t=e.target;if(t&&t.closest&&t.closest('button,a,input,textarea,select,label,[contenteditable]'))return;if(e.cancelable)e.preventDefault()};
+  ['touchstart','touchmove','touchend'].forEach(function(n){addEventListener(n,noLoupe,{capture:true,passive:false})});
+  addEventListener('dblclick',function(e){e.preventDefault()},true);
+  addEventListener('gesturestart',function(e){e.preventDefault()},{capture:true,passive:false});
   addEventListener('selectstart',function(e){if(!ok(e.target))e.preventDefault()},true);
 })();
 </script>
