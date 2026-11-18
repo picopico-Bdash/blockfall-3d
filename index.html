@@ -490,12 +490,10 @@ body::before {
       <div class="title-screen-inner">
         <div class="mode-grid">
           <button class="mode-card" data-mode="normal">
-            <span class="mode-tag">01</span>
             <span class="mode-label">Normal</span>
             <span class="mode-desc">クラシックルール</span>
           </button>
           <button class="mode-card mode-card-hyper" data-mode="hyper">
-            <span class="mode-tag">02</span>
             <span class="mode-label">Hyper</span>
             <span class="mode-desc">爆弾ブロック入り</span>
           </button>
@@ -511,22 +509,20 @@ body::before {
         <p class="chosen-mode" id="chosen-mode">Mode : Normal</p>
         <div class="mode-grid">
           <button class="mode-card diff-card" data-difficulty="easy">
-            <span class="mode-tag">01</span>
             <span class="mode-label">Easy</span>
             <span class="mode-desc">5種類のブロック</span>
           </button>
           <button class="mode-card diff-card" data-difficulty="normal">
-            <span class="mode-tag">02</span>
             <span class="mode-label">Normal</span>
             <span class="mode-desc">テトロミノ全7種類</span>
           </button>
           <button class="mode-card diff-card diff-hard" data-difficulty="hard">
-            <span class="mode-tag">03</span>
             <span class="mode-label">Hard</span>
             <span class="mode-desc">11種類(+ ペントミノ4種)</span>
           </button>
         </div>
-        <p class="title-hint"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> 選択 · <kbd>Esc</kbd> 戻る</p>
+        <p class="title-hint"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> キーで選択</p>
+        <button class="quality-btn back-btn" id="back-btn" type="button">← 戻る</button>
       </div>
     </div>
 
@@ -2455,6 +2451,8 @@ import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
   });
 
   // Difficulty screen: difficulty cards start the game
+  document.getElementById('back-btn').addEventListener('click', (e) => { e.stopPropagation(); showTitle(); });
+
   difficultyScreen.addEventListener('click', (e) => {
     const btn = e.target.closest('.mode-card');
     if (!btn) return;
